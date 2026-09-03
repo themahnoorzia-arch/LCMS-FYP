@@ -1,0 +1,14 @@
+/* Import Bootstrap CSS */
+@import 'bootstrap/dist/css/bootstrap.min.css';
+
+/* Keep body styles minimal or rely entirely on Bootstrap defaults */
+body {
+  /* Basic reset or defaults if needed */
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  /* Font family is usually handled by Bootstrap */
+  /* background-color and color are also handled by Bootstrap defaults or utilities */
+}
+
+/* Add any other minimal global styles here if absolutely necessary */

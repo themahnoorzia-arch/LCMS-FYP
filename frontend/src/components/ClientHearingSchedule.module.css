@@ -1,0 +1,81 @@
+.calendarCard {
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+  padding: 2rem 2.5rem;
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.react-calendar {
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 1px 8px rgba(0,0,0,0.04);
+  width: 100%;
+  max-width: 380px;
+  background: #f8fafc;
+  font-family: inherit;
+  padding: 1rem 0.5rem;
+}
+
+.react-calendar__tile {
+  border-radius: 8px;
+  transition: background 0.2s, color 0.2s;
+  font-weight: 500;
+  font-size: 1rem;
+  padding: 0.5em 0.2em;
+}
+
+.react-calendar__tile--active,
+.react-calendar__tile--now {
+  background: #e0e7ff !important;
+  color: #1e40af !important;
+}
+
+.react-calendar__tile--hasActive {
+  background: #c7d2fe !important;
+}
+
+.hearingDot {
+  display: block;
+  margin: 0.2em auto 0 auto;
+  width: 8px;
+  height: 8px;
+  background: #2563eb;
+  border-radius: 50%;
+}
+
+@media (max-width: 900px) {
+  .calendarCard {
+    padding: 1rem 0.5rem;
+    min-height: 320px;
+  }
+  .react-calendar {
+    max-width: 100%;
+  }
+}
+
+.todaysHearingsCard {
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+  padding: 2rem 2.5rem;
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+}
+
+.todaysHearingsTitle {
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+}
+
+.noHearings {
+  color: #64748b;
+  font-size: 1.1rem;
+  text-align: center;
+  margin-top: 2.5rem;
+} 
