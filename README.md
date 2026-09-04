@@ -1,96 +1,206 @@
-# LegalCaseManagementSystem
+# Legal Case Management System (Court Central)
 
-## Quick Start
+A role-based web application for managing legal cases, hearings, appeals, evidence, payments and notifications across five roles: **Administrator, Lawyer, Judge, Court Registrar,** and **Case Participant (Client)**.
 
-1. **Setup backend:**
-   ```bash
-   cd LegalCaseManagementSystem/backend
-   pip install flask flask-login flask-cors flask-session sqlalchemy psycopg2-binary werkzeug python-dotenv
-   python create_tables.py
-   ```
+**Tech stack:** React (Vite, JavaScript/JSX) · Flask (Python) · PostgreSQL (Supabase) · SQLAlchemy + psycopg2
 
-2. **Setup and build frontend:**
-   ```bash
-   cd ../frontend
-   npm install
-   npm run build
-   ```
+---
 
-3. **Run the application:**
-   ```bash
-   cd ../backend
-   python app.py
-   ```
+## Prerequisites
 
-4. **Access the application:**
-   Open `http://localhost:5000` in your browser
+Before you start, make sure you have:
 
-## Detailed Setup Instructions
+- **Python 3.10+** (check with `python --version`)
+- **Node.js 18+** and npm (check with `node --version`)
+- **A PostgreSQL database** — either your own, or a [Supabase](https://supabase.com) project (recommended, this is what the project was built and tested against)
+- **Git**
 
-### Prerequisites
-- Python 3.7+
-- PostgreSQL database (Supabase recommended)
-- Node.js (for frontend)
+---
 
-### Backend Setup
+## 1. Clone the repository
 
-1. **Navigate to the backend directory:**
-   ```bash
-   cd LegalCaseManagementSystem/backend
-   ```
+```bash
+git clone <your-repo-url>
+cd LegalCaseManagementSystem
+```
 
-2. **Install required Python packages:**
-   ```bash
-   pip install flask flask-login flask-cors flask-session sqlalchemy psycopg2-binary werkzeug
-   ```
+## 2. Backend setup
 
-3. **Set up environment variables:**
-   Create a `.env` file in the backend directory with:
-   ```
-   DATABASE_URL=your_postgresql_connection_string
-   SESSION_TYPE=filesystem
-   ```
-   Or modify the default connection in `config.py`.
+```bash
+cd backend
+python -m venv venv
+```
 
-4. **Create database tables:**
-   ```bash
-   python create_tables.py
-   ```
+Activate the virtual environment:
+```bash
+# Windows (PowerShell)
+venv\Scripts\activate
 
-5. **Run the Flask backend:**
-   ```bash
-   python app.py
-   ```
-   The backend will start on `http://localhost:5000` and serve both the API and the frontend.
+# macOS / Linux
+source venv/bin/activate
+```
 
-### Frontend Setup
+Install dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-1. **Navigate to the frontend directory:**
-   ```bash
-   cd LegalCaseManagementSystem/frontend
-   ```
+### Environment variables
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+Create a file named `.env` inside the `backend/` folder (same folder as `app.py`) with the following:
 
-3. **Build the frontend:**
-   ```bash
-   npm run build
-   ```
-   This creates the production build in the `dist` folder.
+```env
+# Required — your PostgreSQL connection string
+DATABASE_URL=postgresql://user:password@host:port/dbname
 
-4. **Run the backend (which serves the frontend):**
-   ```bash
-   cd ../backend
-   python app.py
-   ```
+# Optional — defaults shown
+SESSION_TYPE=filesystem
+SECRET_KEY=change-this-to-a-random-secret-string
+FRONTEND_URL=http://localhost:5173
 
-5. **Access the application:**
-   The full application will be accessible at `http://localhost:5000`
+# Required for OTP email verification and password recovery
+MAIL_USERNAME=your-gmail-address@gmail.com
+MAIL_PASSWORD=your-gmail-app-password
+```
 
-## Project Overview
+> `MAIL_PASSWORD` must be a **Gmail App Password**, not your normal Gmail password — generate one from your Google Account's Security settings (2-Step Verification must be enabled first). Without valid mail credentials, signup and password recovery emails will silently fail to send.
+
+### Database tables
+
+- **Using an existing, already-populated database** (e.g. sharing the project's Supabase instance): skip this step entirely — the tables and data already exist.
+- **Starting from a brand-new, empty database**: create the schema, then optionally load sample data:
+  ```bash
+  python create_tables.py
+  python seed_database.py
+  ```
+  `seed_database.py` populates a full demo dataset (a court, sample cases, hearings, evidence, etc.) and prints a list of ready-to-use login accounts — see [Demo Accounts](#demo-accounts) below. It's safe to re-run at any time.
+
+  > No Administrator account is seeded by default. To get one, just register a new account through the app's Sign Up page and choose **Administrator** as the role.
+
+## 3. Frontend setup
+
+Open a new terminal (keep the backend one as-is):
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+`npm run build` produces a `dist/` folder — the backend serves this directly, so **you must re-run this command any time you change frontend code** for the change to actually show up (see [Running the App](#running-the-app) below for why).
+
+---
+
+## Running the App
+
+There are two ways to run this locally, depending on what you're doing:
+
+### Option A — Single server (recommended for demos)
+
+```bash
+cd backend
+venv\Scripts\activate    # if not already active
+python app.py
+```
+
+Open **http://localhost:5000**. Flask serves both the API and the built frontend from one place — the simplest option if you just want to use or show off the app.
+
+> ⚠️ If you change any frontend file, run `npm run build` again inside `frontend/` before refreshing — Flask serves the pre-built `dist/` folder, not your live source files, so it won't pick up frontend changes automatically. Backend (Python) changes, on the other hand, reload automatically since the app runs in debug mode.
+
+### Option B — Two dev servers (recommended for active development)
+
+```bash
+# Terminal 1 — backend
+cd backend
+venv\Scripts\activate
+python app.py
+
+# Terminal 2 — frontend, with instant hot-reload
+cd frontend
+npm run dev
+```
+
+Open **http://localhost:5173** instead — Vite's dev server automatically proxies any `/api/*` request to the Flask backend on port 5000, and every frontend change appears instantly with no build step.
+
+---
+
+## Demo Accounts
+
+If you ran `seed_database.py`, every seeded account shares the password:
+
+```
+LegalEase2025!
+```
+
+| Role | Email |
+|---|---|
+| Client | client@gmail.com |
+| Client | ali.raza@client.com |
+| Lawyer | ahmed.khan@legalease.com |
+| Lawyer | sara.malik@legalease.com |
+| Lawyer | omar.hassan@legalease.com |
+| Judge | test@judge.com |
+| Court Registrar | registrar@legalease.com |
+
+(No Administrator account is seeded — register one manually, as noted above.)
+
+---
+
+## Project Structure
+
+```
+LegalCaseManagementSystem/
+├── backend/
+│   ├── app.py                  # Flask app factory & entry point
+│   ├── config.py                # Environment/config loading
+│   ├── models.py                # SQLAlchemy models
+│   ├── create_tables.py         # One-time schema creation
+│   ├── seed_database.py         # Demo data loader
+│   ├── db/                      # Database connection layer
+│   ├── utils/                   # Shared helpers (logging, notifications, migrations)
+│   └── blueprints/               # API routes, grouped by feature
+│       ├── auth/                 # Signup, login, OTP, password recovery
+│       ├── cases/                # Cases, hearings, appeals, evidence, join requests
+│       ├── financials/           # Payments
+│       ├── legal_actors/         # Judges, lawyers, prosecutors, client search
+│       ├── users/                # Profiles, admin management
+│       ├── court/                # Courts and courtrooms
+│       ├── notifications/        # In-app notifications
+│       └── registrar_routes.py   # Registrar-specific actions (verify case, join-request review)
+└── frontend/
+    ├── src/
+    │   ├── pages/                # One file per dashboard/major screen
+    │   ├── components/           # Shared/reusable UI pieces
+    │   └── utils/
+    └── vite.config.js
+```
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| Frontend changes don't appear | You forgot to run `npm run build` (Option A) — Flask serves the static `dist/` folder, not live source |
+| `ValueError: DATABASE_URL environment variable is required` | `.env` is missing or in the wrong folder — it must sit directly inside `backend/` |
+| Signup/OTP emails never arrive | `MAIL_USERNAME`/`MAIL_PASSWORD` missing or wrong — must be a Gmail **App Password**, not your account password |
+| `ModuleNotFoundError` on `python app.py` | Virtual environment isn't activated, or `pip install -r requirements.txt` wasn't run inside it |
+| Blank page or 404 at localhost:5000 | Frontend hasn't been built yet — run `npm run build` inside `frontend/` at least once |
+
+---
+
+## Deployment
+
+This project is set up to deploy as three separate services:
+- **Frontend** → Vercel (builds `frontend/`, `vercel.json` rewrites `/api/*` to the Render backend)
+- **Backend** → Render (`gunicorn app:app`, environment variables set in the Render dashboard, not committed to git)
+- **Database** → Supabase (PostgreSQL)
+
+Pushing to the connected GitHub branch triggers an automatic rebuild on both Vercel and Render — local changes have no effect on the deployed URLs until they're pushed.
+
+---
+
+## Project Overview & Screenshots
 
 # Home Page:
  <img width="1072" height="475" alt="image" src="https://github.com/user-attachments/assets/3e99fc48-ae0d-40df-9afa-de56c88f1554" />
@@ -146,7 +256,7 @@ A pop-up box for adding remarks or notes related to a specific hearing.
 
 
 #Backend:
-The backend coding was done by using Flask to create API’s which were called through the frontend. 
+The backend coding was done by using Flask to create API's which were called through the frontend. 
 First, an API endpoint would be defined in flask like so:
 
  <img width="610" height="1003" alt="image" src="https://github.com/user-attachments/assets/e5513419-aba8-406f-9344-877ac0800d8c" />
@@ -168,9 +278,3 @@ Illustrates the frontend code using React to call the backend API to retrieve an
 
 The results of which can be seen as follows:
 <img width="1072" height="498" alt="image" src="https://github.com/user-attachments/assets/e9581c12-be6a-4e0b-abc9-6049a7531f03" />
-
- 
-
-
-
-
