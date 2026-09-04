@@ -5,6 +5,9 @@ __pycache__/
 # Flask session data
 flask_session/
 
+# User-uploaded files (profile photos, etc.)
+uploads/
+
 # Node / React
 node_modules/
 build/
