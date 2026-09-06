@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Container, Table, Form, Card, Image, Spinner, Alert,
   Badge, Button, Modal, Row, Col, InputGroup,
 } from 'react-bootstrap';
-import { LogOut, Users, FileText, Activity, ClipboardList, LayoutDashboard } from 'lucide-react';
+import { LogOut, Users, FileText, ClipboardList, LayoutDashboard, UserCheck, Building2, Plus, Trash2 } from 'lucide-react';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -33,17 +34,10 @@ const fmtDateTime = (d) => {
   try { return new Date(d).toLocaleString(); } catch { return d; }
 };
 
-const activityIcon = (type) => {
-  const icons = {
-    case_filed: '📁', hearing: '⚖️', appeal: '📋',
-    decision: '🔒', user_registered: '👤',
-  };
-  return icons[type] || '📌';
-};
-
 // ── main component ─────────────────────────────────────────────────────────
 
 const AdminDashboard = () => {
+  const navigate = useNavigate();
   const [activePage, setActivePage] = useState('overview');
   const [adminData, setAdminData] = useState({ username: 'Admin' });
 
@@ -51,8 +45,8 @@ const AdminDashboard = () => {
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
   const [cases, setCases] = useState([]);
-  const [activity, setActivity] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [pending, setPending] = useState([]);
 
   // ui states
   const [loading, setLoading] = useState({});
@@ -65,6 +59,22 @@ const AdminDashboard = () => {
   const [roleModal, setRoleModal] = useState({ show: false, user: null, newRole: '' });
   const [deleteModal, setDeleteModal] = useState({ show: false, user: null });
   const [actionMsg, setActionMsg] = useState(null);
+
+  // Court assignment modal — shown when approving a CourtRegistrar
+  // applicant, since courts are never self-declared or created here —
+  // only ever picked from the pre-existing list managed on the Manage
+  // Courts page.
+  const [courtAssignModal, setCourtAssignModal] = useState({ show: false, user: null, courtid: '' });
+  const [unclaimedCourts, setUnclaimedCourts] = useState([]);
+  const [loadingUnclaimedCourts, setLoadingUnclaimedCourts] = useState(false);
+  const [courtAssignError, setCourtAssignError] = useState(null);
+  const [courtAssignSubmitting, setCourtAssignSubmitting] = useState(false);
+
+  // Manage Courts page
+  const [courts, setCourts] = useState([]);
+  const [searchCourtMgmt, setSearchCourtMgmt] = useState('');
+  const [addCourtModal, setAddCourtModal] = useState({ show: false, name: '', type: '', location: '', error: null, submitting: false });
+  const [deleteCourtModal, setDeleteCourtModal] = useState({ show: false, court: null });
 
   // ── fetch helpers ──────────────────────────────────────────────────────
 
@@ -104,13 +114,20 @@ const AdminDashboard = () => {
     if (activePage === 'cases' && cases.length === 0) {
       load('cases', '/api/admin/cases', d => setCases(d.cases || []));
     }
-    if (activePage === 'activity' && activity.length === 0) {
-      load('activity', '/api/admin/activity', d => setActivity(d.activity || []));
-    }
     if (activePage === 'logs' && logs.length === 0) {
       load('logs', '/api/logs', d => setLogs(Array.isArray(d) ? d : []));
     }
+    if (activePage === 'approvals') {
+      load('pending', '/api/admin/pending-approvals', d => setPending(d.pending || []));
+    }
+    if (activePage === 'courts') {
+      load('courts', '/api/admin/courts', d => setCourts(d.courts || []));
+    }
   }, [activePage]); // eslint-disable-line
+
+  const reloadCourts = useCallback(() => {
+    load('courts', '/api/admin/courts', d => setCourts(d.courts || []));
+  }, [load]);
 
   // ── user actions ───────────────────────────────────────────────────────
 
@@ -151,9 +168,120 @@ const AdminDashboard = () => {
     setRoleModal({ show: false, user: null, newRole: '' });
   };
 
+  const handleApproval = async (user, action, body) => {
+    try {
+      const res = await fetch(`/api/admin/users/${user.userid}/${action}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setPending(prev => prev.filter(x => x.userid !== user.userid));
+      setActionMsg({
+        type: 'success',
+        text: `${user.role} account "${user.name}" ${action === 'approve' ? 'approved' : 'rejected'}.`,
+      });
+      return true;
+    } catch (e) {
+      setActionMsg({ type: 'danger', text: e.message });
+      return false;
+    }
+  };
+
+  // CourtRegistrar approvals need a court assignment first — open the
+  // modal instead of approving directly. Every other case (reject, or
+  // approving a Judge) can go straight through. Courts themselves are
+  // only ever created on the Manage Courts page, never here.
+  const startApproval = (user) => {
+    if (user.role !== 'CourtRegistrar') {
+      handleApproval(user, 'approve');
+      return;
+    }
+    setCourtAssignError(null);
+    setCourtAssignModal({ show: true, user, courtid: '' });
+    setLoadingUnclaimedCourts(true);
+    fetch('/api/admin/unclaimed-courts', { credentials: 'include' })
+      .then(res => res.json())
+      .then(data => setUnclaimedCourts(data.courts || []))
+      .catch(() => setUnclaimedCourts([]))
+      .finally(() => setLoadingUnclaimedCourts(false));
+  };
+
+  const submitCourtAssignApproval = async () => {
+    const { user, courtid } = courtAssignModal;
+    setCourtAssignError(null);
+
+    if (!courtid) {
+      setCourtAssignError('Select a court to assign this registrar to.');
+      return;
+    }
+
+    setCourtAssignSubmitting(true);
+    try {
+      const res = await fetch(`/api/admin/users/${user.userid}/approve`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ courtid: Number(courtid) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to approve');
+      setPending(prev => prev.filter(x => x.userid !== user.userid));
+      setActionMsg({ type: 'success', text: `CourtRegistrar account "${user.name}" approved.` });
+      setCourtAssignModal({ show: false, user: null, courtid: '' });
+    } catch (e) {
+      setCourtAssignError(e.message);
+    } finally {
+      setCourtAssignSubmitting(false);
+    }
+  };
+
+  // ── Manage Courts actions ──────────────────────────────────────────────
+
+  const submitAddCourt = async () => {
+    const { name, type, location } = addCourtModal;
+    if (!name.trim() || !type || !location.trim()) {
+      setAddCourtModal(p => ({ ...p, error: 'Court name, type, and location are all required.' }));
+      return;
+    }
+    setAddCourtModal(p => ({ ...p, submitting: true, error: null }));
+    try {
+      const res = await fetch('/api/court', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, courtType: type, address: location }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to add court');
+      setAddCourtModal({ show: false, name: '', type: '', location: '', error: null, submitting: false });
+      reloadCourts();
+      setActionMsg({ type: 'success', text: `Court "${name}" added.` });
+    } catch (e) {
+      setAddCourtModal(p => ({ ...p, submitting: false, error: e.message }));
+    }
+  };
+
+  const confirmDeleteCourt = async () => {
+    const c = deleteCourtModal.court;
+    if (!c) return;
+    try {
+      const res = await fetch(`/api/admin/courts/${c.id}`, { method: 'DELETE', credentials: 'include' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setCourts(prev => prev.filter(x => x.id !== c.id));
+      setActionMsg({ type: 'success', text: `Court "${c.courtname}" deleted.` });
+    } catch (e) {
+      setActionMsg({ type: 'danger', text: e.message });
+    }
+    setDeleteCourtModal({ show: false, court: null });
+  };
+
   const handleLogout = () => {
     localStorage.clear();
-    window.location.href = '/login';
+    navigate('/login');
   };
 
   // ── filtered lists ─────────────────────────────────────────────────────
@@ -174,9 +302,10 @@ const AdminDashboard = () => {
 
   const navItems = [
     { key: 'overview', label: 'Overview', icon: <LayoutDashboard size={16} /> },
+    { key: 'approvals', label: 'Pending Approvals', icon: <UserCheck size={16} /> },
+    { key: 'courts', label: 'Manage Courts', icon: <Building2 size={16} /> },
     { key: 'users', label: 'Users', icon: <Users size={16} /> },
     { key: 'cases', label: 'All Cases', icon: <FileText size={16} /> },
-    { key: 'activity', label: 'Activity Feed', icon: <Activity size={16} /> },
     { key: 'logs', label: 'System Logs', icon: <ClipboardList size={16} /> },
   ];
 
@@ -221,13 +350,11 @@ const AdminDashboard = () => {
             ))}
           </Row>
 
-          {/* User + hearing + appeal stats */}
+          {/* User + hearing stats */}
           <Row className="g-3 mb-4">
             {[
               { label: 'Total Users', value: stats.users.total, bg: '#22304a', icon: '👥' },
               { label: 'Total Hearings', value: stats.hearings.total, bg: '#1ec6b6', icon: '📅' },
-              { label: 'Total Appeals', value: stats.appeals.total, bg: '#6f42c1', icon: '📋' },
-              { label: 'Pending Appeals', value: stats.appeals.pending, bg: '#dc3545', icon: '🔔' },
             ].map(card => (
               <Col key={card.label} xs={6} md={3}>
                 <Card className="border-0 shadow-sm h-100" style={{ borderRadius: 12 }}>
@@ -378,33 +505,6 @@ const AdminDashboard = () => {
     </div>
   );
 
-  const ActivityPage = () => (
-    <div>
-      <h4 className="fw-bold mb-3" style={{ color: '#22304a' }}>Activity Feed</h4>
-      <div className="text-muted mb-3 small">Live feed of real events — cases, hearings, appeals, decisions, new users.</div>
-      {loading.activity && <div className="text-center py-5"><Spinner /></div>}
-      {errors.activity && <Alert variant="danger">{errors.activity}</Alert>}
-      {!loading.activity && !errors.activity && activity.length === 0 && (
-        <div className="text-center text-muted py-5">No activity yet.</div>
-      )}
-      <div style={{ maxHeight: '65vh', overflowY: 'auto' }}>
-        {activity.map((ev, i) => (
-          <div key={i} className="d-flex gap-3 py-3 border-bottom align-items-start">
-            <div style={{ fontSize: 22, minWidth: 32, textAlign: 'center' }}>{activityIcon(ev.type)}</div>
-            <div className="flex-grow-1">
-              <div className="d-flex align-items-center gap-2 flex-wrap">
-                <Badge bg="light" text="dark" className="border">{ev.label}</Badge>
-                {statusBadge(ev.status)}
-                <span className="text-muted small">{fmtDate(ev.date)}</span>
-              </div>
-              <div className="mt-1">{ev.description}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
   const LogsPage = () => (
     <div>
       <h4 className="fw-bold mb-3" style={{ color: '#22304a' }}>System Logs</h4>
@@ -445,18 +545,138 @@ const AdminDashboard = () => {
     </div>
   );
 
+  const ApprovalsPage = () => (
+    <div>
+      <h4 className="fw-bold mb-3" style={{ color: '#22304a' }}>Pending Approvals</h4>
+      <div className="text-muted mb-3 small">
+        Judge and Court Registrar signups need approval before they can log in.
+      </div>
+      {actionMsg && (
+        <Alert variant={actionMsg.type} dismissible onClose={() => setActionMsg(null)}>
+          {actionMsg.text}
+        </Alert>
+      )}
+      <div className="table-responsive">
+        <Table hover className="align-middle mb-0">
+          <thead className="table-light">
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>CNIC</th>
+              <th>Role</th>
+              <th>Requested</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading.pending && <LoadingRow cols={7} />}
+            {errors.pending && <ErrorRow cols={7} msg={errors.pending} />}
+            {!loading.pending && !errors.pending && pending.length === 0 && (
+              <tr><td colSpan={7} className="text-center text-muted py-4">No pending requests.</td></tr>
+            )}
+            {pending.map(p => (
+              <tr key={p.userid}>
+                <td>{p.name}</td>
+                <td>{p.email}</td>
+                <td>{p.phone || '—'}</td>
+                <td>{p.cnic || '—'}</td>
+                <td>{roleBadge(p.role)}</td>
+                <td>{fmtDate(p.requestedAt)}</td>
+                <td>
+                  <div className="d-flex gap-2">
+                    <Button size="sm" variant="success" onClick={() => startApproval(p)}>Approve</Button>
+                    <Button size="sm" variant="outline-danger" onClick={() => handleApproval(p, 'reject')}>Reject</Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </div>
+    </div>
+  );
+
+  const filteredCourts = courts.filter(c =>
+    [c.courtname, c.type, c.location, c.registrarName].join(' ').toLowerCase().includes(searchCourtMgmt.toLowerCase())
+  );
+
+  const CourtsPage = () => (
+    <div>
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <h4 className="fw-bold mb-0" style={{ color: '#22304a' }}>Manage Courts</h4>
+        <Button size="sm" variant="primary" className="d-flex align-items-center gap-1" onClick={() => setAddCourtModal({ show: true, name: '', type: '', location: '', error: null, submitting: false })}>
+          <Plus size={16} /> Add Court
+        </Button>
+      </div>
+      <div className="text-muted mb-3 small">
+        The authoritative list of courts in the system. A CourtRegistrar applicant gets assigned
+        one of these during approval — courts are never created as a side effect of that.
+      </div>
+      {actionMsg && (
+        <Alert variant={actionMsg.type} dismissible onClose={() => setActionMsg(null)}>
+          {actionMsg.text}
+        </Alert>
+      )}
+      <InputGroup className="mb-3" style={{ maxWidth: 400 }}>
+        <InputGroup.Text>🔍</InputGroup.Text>
+        <Form.Control placeholder="Search courts…" value={searchCourtMgmt} onChange={e => setSearchCourtMgmt(e.target.value)} />
+      </InputGroup>
+      <div className="table-responsive">
+        <Table hover className="align-middle mb-0">
+          <thead className="table-light">
+            <tr>
+              <th>Court Name</th>
+              <th>Type</th>
+              <th>Location</th>
+              <th>Registrar</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading.courts && <LoadingRow cols={5} />}
+            {errors.courts && <ErrorRow cols={5} msg={errors.courts} />}
+            {!loading.courts && !errors.courts && filteredCourts.length === 0 && (
+              <tr><td colSpan={5} className="text-center text-muted py-4">No courts yet.</td></tr>
+            )}
+            {filteredCourts.map(c => (
+              <tr key={c.id}>
+                <td>{c.courtname}</td>
+                <td>{c.type}</td>
+                <td>{c.location}</td>
+                <td>{c.registrarName ? c.registrarName : <span className="text-muted">Unclaimed</span>}</td>
+                <td>
+                  <Button
+                    size="sm"
+                    variant="outline-danger"
+                    disabled={!!c.registrarName}
+                    title={c.registrarName ? 'Unassign the registrar before deleting' : 'Delete court'}
+                    onClick={() => setDeleteCourtModal({ show: true, court: c })}
+                  >
+                    <Trash2 size={14} />
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </div>
+    </div>
+  );
+
   const pageMap = {
     overview: <Overview />,
+    approvals: <ApprovalsPage />,
+    courts: <CourtsPage />,
     users: <UsersPage />,
     cases: <CasesPage />,
-    activity: <ActivityPage />,
     logs: <LogsPage />,
   };
 
   // ── render ──────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ minHeight: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', background: '#f0f2f5', overflow: 'hidden' }}>
+    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#f0f2f5', overflow: 'hidden' }}>
       {/* Header */}
       <div style={{ background: 'linear-gradient(90deg, #22304a 0%, #1ec6b6 100%)', padding: '12px 24px', flexShrink: 0 }}>
         <div className="d-flex justify-content-between align-items-center">
@@ -544,6 +764,110 @@ const AdminDashboard = () => {
         <Modal.Footer>
           <Button variant="secondary" onClick={() => setDeleteModal({ show: false, user: null })}>Cancel</Button>
           <Button variant="danger" onClick={confirmDeleteUser}>Delete</Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Court assignment modal — required to approve a CourtRegistrar.
+          Courts themselves are only ever created on Manage Courts. */}
+      <Modal
+        show={courtAssignModal.show}
+        onHide={() => setCourtAssignModal({ show: false, user: null, courtid: '' })}
+        centered
+      >
+        <Modal.Header closeButton>
+          <Modal.Title>Assign a Court — {courtAssignModal.user?.name}</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p className="text-muted small">
+            Pick an existing unclaimed court for this registrar to run. Each
+            court can only have one registrar. Need a new court first? Add it
+            on the Manage Courts page, then come back here.
+          </p>
+          {courtAssignError && <Alert variant="danger">{courtAssignError}</Alert>}
+
+          {loadingUnclaimedCourts ? (
+            <div className="text-center py-3"><Spinner size="sm" /></div>
+          ) : unclaimedCourts.length === 0 ? (
+            <div className="text-muted small">No unclaimed courts available — add one on the Manage Courts page first.</div>
+          ) : (
+            <Form.Select
+              value={courtAssignModal.courtid}
+              onChange={e => setCourtAssignModal(p => ({ ...p, courtid: e.target.value }))}
+            >
+              <option value="">Select a court…</option>
+              {unclaimedCourts.map(c => (
+                <option key={c.id} value={c.id}>{c.courtname} — {c.type} — {c.location}</option>
+              ))}
+            </Form.Select>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setCourtAssignModal({ show: false, user: null, courtid: '' })}>
+            Cancel
+          </Button>
+          <Button variant="success" onClick={submitCourtAssignApproval} disabled={courtAssignSubmitting || unclaimedCourts.length === 0}>
+            {courtAssignSubmitting ? <Spinner size="sm" animation="border" /> : 'Approve & Assign'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Add Court modal (Manage Courts page) */}
+      <Modal show={addCourtModal.show} onHide={() => setAddCourtModal({ show: false, name: '', type: '', location: '', error: null, submitting: false })} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Add Court</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {addCourtModal.error && <Alert variant="danger">{addCourtModal.error}</Alert>}
+          <Form.Group className="mb-3">
+            <Form.Label>Court Name</Form.Label>
+            <Form.Control
+              value={addCourtModal.name}
+              onChange={e => setAddCourtModal(p => ({ ...p, name: e.target.value }))}
+              placeholder="Enter court name"
+            />
+          </Form.Group>
+          <Form.Group className="mb-3">
+            <Form.Label>Address / Location</Form.Label>
+            <Form.Control
+              value={addCourtModal.location}
+              onChange={e => setAddCourtModal(p => ({ ...p, location: e.target.value }))}
+              placeholder="Enter court address"
+            />
+          </Form.Group>
+          <Form.Group>
+            <Form.Label>Court Type</Form.Label>
+            <Form.Select
+              value={addCourtModal.type}
+              onChange={e => setAddCourtModal(p => ({ ...p, type: e.target.value }))}
+            >
+              <option value="">Select court type</option>
+              <option value="Supreme Court">Supreme Court</option>
+              <option value="High Court">High Court</option>
+              <option value="District Court">District Court</option>
+              <option value="Magistrate Court">Magistrate Court</option>
+              <option value="Special Court">Special Court</option>
+            </Form.Select>
+          </Form.Group>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setAddCourtModal({ show: false, name: '', type: '', location: '', error: null, submitting: false })}>Cancel</Button>
+          <Button variant="primary" onClick={submitAddCourt} disabled={addCourtModal.submitting}>
+            {addCourtModal.submitting ? <Spinner size="sm" animation="border" /> : 'Add Court'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Delete Court confirm modal */}
+      <Modal show={deleteCourtModal.show} onHide={() => setDeleteCourtModal({ show: false, court: null })} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Delete Court</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          Are you sure you want to delete <strong>{deleteCourtModal.court?.courtname}</strong>?
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setDeleteCourtModal({ show: false, court: null })}>Cancel</Button>
+          <Button variant="danger" onClick={confirmDeleteCourt}>Delete</Button>
         </Modal.Footer>
       </Modal>
     </div>

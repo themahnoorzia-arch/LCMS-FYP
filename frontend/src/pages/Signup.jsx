@@ -15,8 +15,7 @@ const roles = [
   'Client',
   'CourtRegistrar',
   'Lawyer',
-  'Judge',
-  'Admin'
+  'Judge'
 ];
 
 const steps = [
@@ -32,7 +31,7 @@ const steps = [
     label: 'Contact Info',
     fields: [
       { name: 'email', label: 'Email address', type: 'email', placeholder: 'you@example.com', required: true },
-      { name: 'phoneno', label: 'Phone Number', type: 'tel', placeholder: '123-456-7890', required: true },
+      { name: 'phoneno', label: 'Phone Number', type: 'tel', placeholder: '03XXXXXXXXX', required: true },
       { name: 'cnic', label: 'CNIC', type: 'text', placeholder: '12345-1234567-1', required: true }
     ]
   },
@@ -66,9 +65,41 @@ const Signup = () => {
 
   const isEmailValid = (email) => /\S+@\S+\.\S+/.test(email);
   const isPasswordStrong = (password) => password.length >= 8;
+  const onlyDigits = (value) => (value || '').replace(/\D/g, '');
+  const isCnicValid = (value) => onlyDigits(value).length === 13;
+  const isPhoneValid = (value) => {
+    const digits = onlyDigits(value);
+    return digits.length === 11 && digits.startsWith('03');
+  };
+
+  // Signing up requires being at least 18 — the calendar picker is capped
+  // at this date too, but that only blocks the picker, not manual entry.
+  const todayDate = new Date();
+  const maxDob = new Date(todayDate.getFullYear() - 18, todayDate.getMonth(), todayDate.getDate())
+    .toISOString().split('T')[0];
+  const isAdultDob = (value) => {
+    const dob = new Date(value);
+    if (Number.isNaN(dob.getTime())) return false;
+    if (dob > todayDate) return false; // no birthdates in the future
+    let age = todayDate.getFullYear() - dob.getFullYear();
+    const monthDiff = todayDate.getMonth() - dob.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && todayDate.getDate() < dob.getDate())) age--;
+    return age >= 18;
+  };
 
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    if (name === 'phoneno') {
+      // Digits only, capped at 11 characters
+      setForm({ ...form, [name]: onlyDigits(value).slice(0, 11) });
+      return;
+    }
+    if (name === 'cnic') {
+      // Digits and dashes only (dashes allowed for the 12345-1234567-1 format)
+      setForm({ ...form, [name]: value.replace(/[^0-9-]/g, '') });
+      return;
+    }
+    setForm({ ...form, [name]: value });
   };
 
   const validateStep = () => {
@@ -93,6 +124,18 @@ const Signup = () => {
       }
       if (field.name === 'lastname' && value && value.trim().length < 2) {
         setError('Last name must be at least 2 characters.');
+        return false;
+      }
+      if (field.name === 'dob' && value && !isAdultDob(value)) {
+        setError('You must be at least 18 years old to sign up, and the date of birth cannot be in the future.');
+        return false;
+      }
+      if (field.name === 'phoneno' && value && !isPhoneValid(value)) {
+        setError('Phone number must be a valid 11-digit Pakistani mobile number (e.g. 03XXXXXXXXX). Letters are not allowed.');
+        return false;
+      }
+      if (field.name === 'cnic' && value && !isCnicValid(value)) {
+        setError('CNIC must be exactly 13 digits (e.g. 12345-1234567-1). Letters are not allowed.');
         return false;
       }
     }
@@ -129,6 +172,9 @@ const Signup = () => {
       const data = await response.json();
 
       if (response.ok && data.success) {
+        // Wipe any cached profile data/photos left over from a previous
+        // account on this browser so the new account starts from zero.
+        localStorage.clear();
         localStorage.setItem('userRole', form.role);
         localStorage.setItem('email', form.email);
         if (data.user_id) {
@@ -312,7 +358,8 @@ const Signup = () => {
                   onChange={handleChange}
                   required={field.required}
                   aria-required={field.required}
-                  style={{ 
+                  max={field.name === 'dob' ? maxDob : undefined}
+                  style={{
                     borderRadius: '0.75rem',
                     padding: '0.75rem 1rem',
                     border: '1px solid rgba(30,198,182,0.2)'

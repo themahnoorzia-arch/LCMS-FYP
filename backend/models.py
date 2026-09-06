@@ -34,12 +34,9 @@ class Cases(Base):
     lawyer: Mapped[List['Lawyer']] = relationship('Lawyer', secondary='caselawyeraccess', back_populates='cases')
     judge: Mapped[List['Judge']] = relationship('Judge', secondary='judgeaccess', back_populates='cases')
     caseparticipant: Mapped[List['Caseparticipant']] = relationship('Caseparticipant', secondary='caseparticipantaccess', back_populates='cases')
-    appeals: Mapped[List['Appeals']] = relationship('Appeals', back_populates='cases')
-    bail: Mapped[List['Bail']] = relationship('Bail', back_populates='cases')
     casehistory: Mapped[List['Casehistory']] = relationship('Casehistory', back_populates='cases')
     evidence: Mapped[List['Evidence']] = relationship('Evidence', back_populates='cases')
     finaldecision: Mapped[List['Finaldecision']] = relationship('Finaldecision', back_populates='cases')
-    remands: Mapped[List['Remands']] = relationship('Remands', back_populates='cases')
     hearings: Mapped[List['Hearings']] = relationship('Hearings', back_populates='cases')
     payments: Mapped[List['Payments']] = relationship('Payments', back_populates='cases')
 
@@ -130,24 +127,6 @@ class Prosecutor(Base):
     status: Mapped[Optional[str]] = mapped_column(String(255))
 
     cases: Mapped[List['Cases']] = relationship('Cases', secondary='prosecutorassign', back_populates='prosecutor')
-
-
-class Surety(Base):
-    __tablename__ = 'surety'
-    __table_args__ = (
-        PrimaryKeyConstraint('suretyid', name='surety_pkey'),
-    )
-
-    suretyid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    cnic: Mapped[str] = mapped_column(String(13))
-    phone: Mapped[str] = mapped_column(String(15))
-    firstname: Mapped[Optional[str]] = mapped_column(String(255))
-    lastname: Mapped[Optional[str]] = mapped_column(String(255))
-    email: Mapped[Optional[str]] = mapped_column(String(100))
-    address: Mapped[Optional[str]] = mapped_column(String(255))
-    pasthistory: Mapped[Optional[str]] = mapped_column(Text)
-
-    bail: Mapped[List['Bail']] = relationship('Bail', back_populates='surety')
 
 
 class Users(Base):
@@ -246,44 +225,6 @@ class Admin(Base):
 
     users: Mapped[Optional['Users']] = relationship('Users', back_populates='admin')
     logtable: Mapped[List['Logtable']] = relationship('Logtable', back_populates='admin')
-
-
-class Appeals(Base):
-    __tablename__ = 'appeals'
-    __table_args__ = (
-        ForeignKeyConstraint(['caseid'], ['cases.caseid'], ondelete='CASCADE', onupdate='CASCADE', name='fk_appeals_case'),
-        PrimaryKeyConstraint('caseid', 'appealid', name='appealspk')
-    )
-
-    caseid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    appealid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    appealdate: Mapped[datetime.date] = mapped_column(Date)
-    appealstatus: Mapped[Optional[str]] = mapped_column(String(100), server_default=text("'forwarded for review'::character varying"))
-    decisiondate: Mapped[Optional[datetime.date]] = mapped_column(Date)
-    decision: Mapped[Optional[str]] = mapped_column(Text)
-
-    cases: Mapped['Cases'] = relationship('Cases', back_populates='appeals')
-
-
-class Bail(Base):
-    __tablename__ = 'bail'
-    __table_args__ = (
-        ForeignKeyConstraint(['caseid'], ['cases.caseid'], ondelete='CASCADE', onupdate='CASCADE', name='fk_bail_caseid'),
-        ForeignKeyConstraint(['suretyid'], ['surety.suretyid'], ondelete='CASCADE', onupdate='CASCADE', name='fk_bail_suretyid'),
-        PrimaryKeyConstraint('caseid', 'bailid', name='bailpk')
-    )
-
-    caseid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    bailid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    suretyid: Mapped[int] = mapped_column(BigInteger)
-    bailstatus: Mapped[Optional[str]] = mapped_column(String(50))
-    bailamount: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric(10, 2))
-    baildate: Mapped[Optional[datetime.date]] = mapped_column(Date)
-    remarks: Mapped[Optional[str]] = mapped_column(Text)
-    bailcondition: Mapped[Optional[str]] = mapped_column(Text)
-
-    cases: Mapped['Cases'] = relationship('Cases', back_populates='bail')
-    surety: Mapped['Surety'] = relationship('Surety', back_populates='bail')
 
 
 class Casehistory(Base):
@@ -435,25 +376,6 @@ t_prosecutorassign = Table(
     ForeignKeyConstraint(['prosecutorid'], ['prosecutor.prosecutorid'], ondelete='CASCADE', onupdate='CASCADE', name='prosecutorassignfk'),
     PrimaryKeyConstraint('prosecutorid', 'caseid', name='prosecutorassignpk')
 )
-
-
-class Remands(Base):
-    __tablename__ = 'remands'
-    __table_args__ = (
-        ForeignKeyConstraint(['caseid'], ['cases.caseid'], ondelete='CASCADE', onupdate='CASCADE', name='fk_remands_case'),
-        PrimaryKeyConstraint('caseid', 'remandid', name='remands_pk')
-    )
-
-    caseid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    remandid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    startdate: Mapped[datetime.date] = mapped_column(Date)
-    enddate: Mapped[datetime.date] = mapped_column(Date)
-    remandtype: Mapped[Optional[str]] = mapped_column(String(100))
-    remanddate: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
-    remandreason: Mapped[Optional[str]] = mapped_column(Text)
-    status: Mapped[Optional[str]] = mapped_column(String)
-
-    cases: Mapped['Cases'] = relationship('Cases', back_populates='remands')
 
 
 t_caselawyeraccess = Table(

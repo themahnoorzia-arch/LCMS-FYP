@@ -615,7 +615,7 @@ const updateHearingRemarks = async (hearingId, remarks) => {
   }
 
   return (
-    <div style={{ minHeight: '100vh', width: '100vw', overflow: 'hidden', background: '#f8f9fa', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: '#f8f9fa', display: 'flex', flexDirection: 'column' }}>
       {(fallbackWarning || caseError) && (
         <Alert variant="warning" className="mb-0 rounded-0 text-center py-2">
           {fallbackWarning || caseError}

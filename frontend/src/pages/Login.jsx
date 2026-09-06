@@ -10,34 +10,6 @@ import '../styles/login.css';
 import legalLoginImage from '../assets/legal-login.png';
 import { Eye, EyeOff } from 'lucide-react';
 
-// Mock credentials for lawyer and registrar
-const MOCK_LAWYER = {
-  email: 'lawyer@example.com',
-  password: 'password123',
-};
-const MOCK_COURTREGISTRAR = {
-  email: 'registrar@example.com',
-  password: 'registrar123',
-};
-
-// Add mock admin credentials
-const MOCK_ADMIN = {
-  email: 'admin@legalease.com',
-  password: 'admin123',
-};
-
-// Add mock judge credentials
-const MOCK_JUDGE = {
-  email: 'judge@example.com',
-  password: 'judge123',
-};
-
-// Add mock client credentials
-const MOCK_CLIENT = {
-  email: 'client@example.com',
-  password: 'client123',
-};
-
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -47,6 +19,7 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState(null);
   const [resendStatus, setResendStatus] = useState(null);
+  const [pendingApproval, setPendingApproval] = useState(null);
   const navigate = useNavigate();
 
   const isEmailValid = (email) => /\S+@\S+\.\S+/.test(email);
@@ -54,6 +27,7 @@ const Login = () => {
  const handleSubmit = async (event) => {
   event.preventDefault();
   setError(null);
+  setPendingApproval(null);
 
   if (!email || !isEmailValid(email)) {
     setError('Please enter a valid email address.');
@@ -65,31 +39,6 @@ const Login = () => {
   }
 
   setIsLoading(true);
-
-  const isMockClient =
-    userType === 'Client' &&
-    email === MOCK_CLIENT.email &&
-    password === MOCK_CLIENT.password;
-
-  const isMockLawyer =
-    userType === 'lawyer' &&
-    email === MOCK_LAWYER.email &&
-    password === MOCK_LAWYER.password;
-
-  const isMockCourtRegistrar =
-    userType === 'CourtRegistrar' &&
-    email === MOCK_COURTREGISTRAR.email &&
-    password === MOCK_COURTREGISTRAR.password;
-
-  const isMockAdmin =
-    userType === 'Admin' &&
-    email === MOCK_ADMIN.email &&
-    password === MOCK_ADMIN.password;
-
-  const isMockJudge =
-    userType === 'Judge' &&
-    email === MOCK_JUDGE.email &&
-    password === MOCK_JUDGE.password;
 
   try {
     const response = await fetch('/api/login', {
@@ -103,6 +52,9 @@ const Login = () => {
 
     if (response.ok && result.success) {
       const { role } = result;
+      // Wipe any cached profile data/photos left over from a previous
+      // account on this browser so this login starts from zero.
+      localStorage.clear();
       localStorage.setItem('userRole', role);
       localStorage.setItem('email', result.email);
       if (result.user_id) {
@@ -125,45 +77,14 @@ const Login = () => {
     } else if (response.status === 403 && result.email_not_verified) {
       setUnverifiedEmail(result.email || email);
       setError(null);
-    } else if (isMockLawyer || isMockCourtRegistrar || isMockAdmin || isMockJudge || isMockClient) {
-      // Fallback to mock credentials if API fails
-      let role;
-      if (isMockLawyer) role = 'Lawyer';
-      else if (isMockCourtRegistrar) role = 'CourtRegistrar';
-      else if (isMockAdmin) role = 'Admin';
-      else if (isMockJudge) role = 'Judge';
-      else if (isMockClient) role = 'Client';
-      localStorage.setItem('userRole', role);
-      localStorage.setItem('email', email);
-      
-      if (role === 'Lawyer') navigate('/dashboard');
-      else if (role === 'CourtRegistrar') navigate('/RegistrarDashboard');
-      else if (role === 'Admin') navigate('/AdminDashboard');
-      else if (role === 'Judge') navigate('/JudgeDashboard');
-      else if (role === 'Client') navigate('/ClientDashboard');
+    } else if (response.status === 403 && result.pending_approval) {
+      setError(null);
+      setPendingApproval(result.message || 'Your account is awaiting admin approval.');
     } else {
       setError(result.message || 'Invalid email or password.');
     }
   } catch (err) {
-    // Network/API down → check mock credentials
-    if (isMockLawyer || isMockCourtRegistrar || isMockAdmin || isMockJudge || isMockClient) {
-      let role;
-      if (isMockLawyer) role = 'Lawyer';
-      else if (isMockCourtRegistrar) role = 'CourtRegistrar';
-      else if (isMockAdmin) role = 'Admin';
-      else if (isMockJudge) role = 'Judge';
-      else if (isMockClient) role = 'Client';
-      localStorage.setItem('userRole', role);
-      localStorage.setItem('email', email);
-      
-      if (role === 'Lawyer') navigate('/dashboard');
-      else if (role === 'CourtRegistrar') navigate('/RegistrarDashboard');
-      else if (role === 'Admin') navigate('/AdminDashboard');
-      else if (role === 'Judge') navigate('/JudgeDashboard');
-      else if (role === 'Client') navigate('/ClientDashboard');
-    } else {
-      setError('Login failed. Please try again later.');
-    }
+    setError('Could not reach the server. Make sure the backend is running on port 5000.');
   } finally {
     setIsLoading(false);
   }
@@ -246,6 +167,12 @@ const Login = () => {
         {error && (
           <Alert variant="danger" onClose={() => setError(null)} dismissible style={{ borderRadius: '0.75rem', fontSize: '0.95rem', marginBottom: '0.5rem' }}>
             {error}
+          </Alert>
+        )}
+        {pendingApproval && (
+          <Alert variant="warning" onClose={() => setPendingApproval(null)} dismissible style={{ borderRadius: '0.75rem', fontSize: '0.94rem', marginBottom: '0.5rem' }}>
+            <div className="fw-semibold mb-1">Awaiting approval</div>
+            <div style={{ fontSize: 13 }}>{pendingApproval}</div>
           </Alert>
         )}
         {unverifiedEmail && (

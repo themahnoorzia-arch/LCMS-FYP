@@ -14,11 +14,19 @@ from models import (
 
 
 # ==========================================================
-# CREATE COURT
+# CREATE COURT (Admin only — courts are never self-declared by a
+# registrar; they're created/assigned by an Admin as part of approving a
+# CourtRegistrar applicant. See /api/admin/users/<id>/approve.)
 # ==========================================================
 @court_bp.route("/api/court", methods=["POST"])
 @login_required
 def add_court():
+    if current_user.role != "Admin":
+        return jsonify({
+            "status": "error",
+            "message": "Admin access required"
+        }), 403
+
     db = SessionLocal()
 
     try:
@@ -42,23 +50,6 @@ def add_court():
 
         db.add(new_court)
         db.flush()
-
-        if current_user.role == "CourtRegistrar":
-
-            registrar = (
-                db.query(Courtregistrar)
-                .filter_by(userid=current_user.userid)
-                .first()
-            )
-
-            if not registrar:
-                return jsonify({
-                    "status": "error",
-                    "message": "CourtRegistrar profile not found"
-                }), 404
-
-            registrar.courtid = new_court.courtid
-
         db.commit()
 
         return jsonify({

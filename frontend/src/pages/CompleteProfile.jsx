@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Form, Button, Alert, Spinner } from 'react-bootstrap';
 import '../styles/signup.css';
 import legalLoginImage from '../assets/legal-login.png';
-import CourtRegistrationForm from '../components/CourtRegistrationForm';
 
 const roleFieldMap = {
   'Client': [
@@ -40,6 +39,7 @@ const CompleteProfile = () => {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [step, setStep] = useState(0);
+  const [pendingApprovalMessage, setPendingApprovalMessage] = useState(null);
 
   const fields = getRoleFields(role);
 
@@ -123,10 +123,16 @@ const CompleteProfile = () => {
         throw new Error(result.message || 'Profile completion failed');
       }
 
-      // Navigate based on role
-      if (role === 'CourtRegistrar') {
-        navigate('/register-court');
-      } else if (role === 'Lawyer') {
+      if (result.pending_approval) {
+        setPendingApprovalMessage(result.message);
+        return;
+      }
+
+      // Navigate based on role. CourtRegistrar always requires admin
+      // approval (handled above), so this never actually reaches here for
+      // that role — a court gets assigned by the Admin during approval,
+      // never self-registered.
+      if (role === 'Lawyer') {
         navigate('/dashboard');
       } else if (role === 'Client') {
         navigate('/ClientDashboard');
@@ -144,6 +150,28 @@ const CompleteProfile = () => {
       setIsLoading(false);
     }
   };
+
+  if (pendingApprovalMessage) {
+    return (
+      <div className="signup-bg" style={{ minHeight: '100vh', width: '100vw', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto' }}>
+        <div className="signup-form-card" style={{ maxWidth: 400, width: '100%', padding: '2em 1.2em', margin: '2em 0', textAlign: 'center' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>⏳</div>
+          <h2 style={{ color: '#22304a', fontWeight: 700, marginBottom: 12 }}>Awaiting Approval</h2>
+          <p className="text-muted" style={{ fontSize: 15 }}>{pendingApprovalMessage}</p>
+          <Button
+            className="mt-3"
+            style={{
+              background: 'linear-gradient(90deg, #22304a 0%, #1ec6b6 100%)',
+              border: 'none', borderRadius: '0.75rem', padding: '0.6rem 1.5rem', fontWeight: 600,
+            }}
+            onClick={() => navigate('/login')}
+          >
+            Back to login
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="signup-bg" style={{ minHeight: '100vh', width: '100vw', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto' }}>

@@ -116,7 +116,7 @@ function ClientDashboard() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', width: '100vw', overflow: 'hidden', background: '#f8f9fa', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: '#f8f9fa', display: 'flex', flexDirection: 'column' }}>
       {/* Top Navigation Bar */}
       <div className="dashboard-header-gradient p-3" style={{ flex: '0 0 auto', background: 'linear-gradient(90deg, #22304a 0%, #1ec6b6 100%)' }}>
         <div className="d-flex justify-content-between align-items-center">

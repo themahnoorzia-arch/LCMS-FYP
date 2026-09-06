@@ -60,6 +60,7 @@ const VerifyOTP = () => {
       const res = await fetch('/api/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email, otp: code }),
       });
       const data = await res.json();
@@ -83,6 +84,7 @@ const VerifyOTP = () => {
       const res = await fetch('/api/resend-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email, purpose: 'verify' }),
       });
       const data = await res.json();

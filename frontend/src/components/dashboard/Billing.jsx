@@ -102,6 +102,7 @@ const Billing = () => {
                 <Form.Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ borderRadius: 8 }}>
                   <option value="All">All Statuses</option>
                   <option value="Pending">Pending</option>
+                  <option value="Pending Verification">Pending Verification</option>
                   <option value="Paid">Paid</option>
                 </Form.Select>
               </Col>
@@ -144,7 +145,11 @@ const Billing = () => {
                           <td>{p.courtname || '—'}</td>
                           <td>
                             <Badge
-                              bg={p.status === 'Paid' ? 'success' : 'warning'}
+                              bg={
+                                p.status === 'Paid' ? 'success'
+                                : p.status === 'Pending Verification' ? 'info'
+                                : 'warning'
+                              }
                               style={{ fontSize: 12 }}
                             >
                               {p.status}
@@ -165,8 +170,11 @@ const Billing = () => {
                                   borderRadius: 6, fontSize: 12, fontWeight: 600,
                                 }}
                               >
-                                Confirm Payment
+                                Report Payment
                               </Button>
+                            )}
+                            {p.status === 'Pending Verification' && (
+                              <span className="text-muted small">Awaiting registrar review</span>
                             )}
                             {p.status === 'Paid' && (
                               <CheckCircle size={16} style={{ color: '#16a34a' }} />
@@ -186,7 +194,7 @@ const Billing = () => {
         <Modal show={!!confirmPayment} onHide={() => setConfirmPayment(null)} centered>
           <Modal.Header closeButton>
             <Modal.Title style={{ fontSize: 18, fontWeight: 700, color: '#22304a' }}>
-              Confirm Payment
+              Report Payment
             </Modal.Title>
           </Modal.Header>
           <form onSubmit={handleConfirm}>
@@ -252,7 +260,7 @@ const Billing = () => {
                 disabled={confirming}
                 style={{ background: '#1ec6b6', border: 'none', fontWeight: 600 }}
               >
-                {confirming ? <Spinner size="sm" animation="border" /> : 'Mark as Paid'}
+                {confirming ? <Spinner size="sm" animation="border" /> : 'Report as Paid'}
               </Button>
             </Modal.Footer>
           </form>

@@ -6,7 +6,6 @@ import SidebarNav from '../components/dashboard/SidebarNav';
 import CalendarSummary from '../components/dashboard/CalendarSummary';
 import Notifications from '../components/dashboard/Notifications';
 import Billing from '../components/dashboard/Billing';
-import Appeals from '../components/dashboard/Appeals';
 import Evidence from './Evidence.jsx';
 import Witnesses from './Witnesses.jsx';
 
@@ -313,6 +312,7 @@ const handleCaseSubmit = async (e) => {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
           },
+          credentials: 'include',
           body: JSON.stringify(caseData),
         });
       } else {
@@ -532,8 +532,6 @@ const handleCaseSubmit = async (e) => {
         return <CalendarSummary />;
       case 'billing':
         return <Billing payments={payments} onCreatePayment={createPayment} />;
-      case 'appeals':
-        return <Appeals />;
       case 'evidence':
         return <Evidence />;
       case 'witnesses':
@@ -556,7 +554,7 @@ const handleCaseSubmit = async (e) => {
   }
 
   return (
-    <div style={{ minHeight: '100vh', width: '100vw', overflow: 'hidden', background: '#f8f9fa', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: '#f8f9fa', display: 'flex', flexDirection: 'column' }}>
       {fallbackWarning && (
         <div className="alert alert-warning text-center">{fallbackWarning}</div>
       )}

@@ -1,4 +1,5 @@
 import random
+import re
 import datetime
 
 from flask import request, jsonify, session, current_app
@@ -27,6 +28,12 @@ from models import (
     Admin,
     Courtregistrar,
     Caseparticipant,
+)
+from utils.validators import (
+    normalize_digits as _normalize_digits,
+    is_valid_cnic as _is_valid_cnic,
+    is_valid_pk_phone as _is_valid_pk_phone,
+    is_adult_dob as _is_adult_dob,
 )
 
 
@@ -76,6 +83,11 @@ def _verify_password(stored_password, provided_password):
     return stored_password == provided_password
 
 
+# Roles that carry real court authority — accounts start "pending" and
+# can't log in until an existing Admin approves them from the admin panel.
+ROLES_REQUIRING_APPROVAL = {"Judge", "CourtRegistrar"}
+
+
 def _sync_user_id_sequence(db):
     """Keep PostgreSQL userid sequence aligned with existing rows."""
     db.execute(
@@ -95,19 +107,44 @@ def _sync_user_id_sequence(db):
 def signup():
     data = request.get_json()
 
-    firstname = data.get("firstname")
-    lastname = data.get("lastname")
-    email = data.get("email")
-    phoneno = data.get("phoneno")
-    cnic = data.get("cnic")
+    firstname = (data.get("firstname") or "").strip()
+    lastname = (data.get("lastname") or "").strip()
+    email = (data.get("email") or "").strip()
+    phoneno = (data.get("phoneno") or "").strip()
+    cnic = (data.get("cnic") or "").strip()
     dob = data.get("dob")
-    password = data.get("password")
+    password = data.get("password") or ""
     role = data.get("role", "").strip().lower()
+
+    # All fields are mandatory — no partial signups
+    required = {
+        "First name": firstname,
+        "Last name": lastname,
+        "Email": email,
+        "Phone number": phoneno,
+        "CNIC": cnic,
+        "Date of birth": dob,
+        "Password": password,
+        "Role": role,
+    }
+    missing = [label for label, value in required.items() if not value]
+    if missing:
+        return jsonify({
+            "success": False,
+            "message": f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} required."
+        }), 400
+
+    # Admin accounts can never be self-registered — technical team only,
+    # added directly via the admin dashboard's role-management tools.
+    if role == "admin":
+        return jsonify({
+            "success": False,
+            "message": "Admin accounts cannot be created through signup."
+        }), 400
 
     role_mapping = {
         "courtregistrar": "CourtRegistrar",
         "client": "CaseParticipant",
-        "admin": "Admin",
         "lawyer": "Lawyer",
         "judge": "Judge",
     }
@@ -115,7 +152,6 @@ def signup():
     role = role_mapping.get(role, role)
 
     valid_roles = [
-        "Admin",
         "CourtRegistrar",
         "CaseParticipant",
         "Lawyer",
@@ -128,28 +164,51 @@ def signup():
             "message": "Invalid role"
         }), 400
 
+    cnic_digits = _normalize_digits(cnic)
+    if not _is_valid_cnic(cnic_digits):
+        return jsonify({
+            "success": False,
+            "message": "CNIC must be exactly 13 digits (e.g. 12345-1234567-1)."
+        }), 400
+
+    phone_digits = _normalize_digits(phoneno)
+    if not _is_valid_pk_phone(phone_digits):
+        return jsonify({
+            "success": False,
+            "message": "Phone number must be a valid 11-digit Pakistani mobile number (e.g. 03XXXXXXXXX)."
+        }), 400
+
+    if len(password) < 8:
+        return jsonify({
+            "success": False,
+            "message": "Password must be at least 8 characters."
+        }), 400
+
+    if not _is_adult_dob(dob):
+        return jsonify({
+            "success": False,
+            "message": "You must be at least 18 years old to sign up, and the date of birth cannot be in the future.",
+        }), 400
+
     db = SessionLocal()
 
     try:
-        existing = (
-            db.query(Users)
-            .filter_by(
-                firstname=firstname,
-                lastname=lastname
-            )
-            .first()
-        )
-
-        if existing:
+        # Email is the key every login/OTP/password-reset lookup uses, so it
+        # must map to exactly one account — otherwise those lookups can
+        # silently grab the wrong row when two signups share an email.
+        existing_email = db.query(Users).filter_by(email=email).first()
+        if existing_email:
             return jsonify({
                 "success": False,
-                "message": "User already exists with the same name"
+                "message": "An account with this email already exists."
             }), 400
 
-        # Same CNIC cannot register twice under the same role
+        # Same CNIC cannot register twice under the same role, no matter
+        # what name is used — CNIC is normalized (dashes/spaces stripped)
+        # before comparison so formatting differences can't slip through.
         existing_cnic = (
             db.query(Users)
-            .filter_by(cnic=cnic, role=role)
+            .filter_by(cnic=cnic_digits, role=role)
             .first()
         )
         if existing_cnic:
@@ -166,8 +225,8 @@ def signup():
             firstname=firstname,
             lastname=lastname,
             email=email,
-            phoneno=phoneno,
-            cnic=cnic,
+            phoneno=phone_digits,
+            cnic=cnic_digits,
             dob=dob,
             password=hashed_pw,
             role=role,
@@ -187,6 +246,11 @@ def signup():
             ),
             {"t": otp, "e": expiry, "uid": user.userid},
         )
+        if role in ROLES_REQUIRING_APPROVAL:
+            db.execute(
+                text("UPDATE users SET approval_status='pending' WHERE userid=:uid"),
+                {"uid": user.userid},
+            )
         db.commit()
 
         email_sent = _send_otp_email(email, firstname, otp, purpose="verify")
@@ -223,11 +287,15 @@ def complete_profile():
     try:
         data = request.get_json()
 
-        user_id = data.get("user_id") or session.get("user_id")
+        # The user_id must come from this browser's own session, set only
+        # by a successful /api/verify-otp call — never trust a client-
+        # supplied user_id, that's an account-takeover path (anyone could
+        # "complete the profile" of any existing user id and get logged in).
+        user_id = session.get("otp_verified_user_id")
 
         if not user_id:
             return jsonify({
-                "message": "User not logged in or session expired."
+                "message": "Please verify your email before completing your profile."
             }), 401
 
         user = db.query(Users).get(user_id)
@@ -236,6 +304,12 @@ def complete_profile():
             return jsonify({
                 "message": "User not found"
             }), 404
+
+        # No separate is_email_verified check needed here — the session
+        # flag above already proves this exact user just passed OTP
+        # verification (is_email_verified isn't a mapped ORM column on
+        # Users, so a getattr check on it here would silently always
+        # fall back to its default instead of reading the real value).
 
         role_mapping = {
             "courtregistrar": "CourtRegistrar",
@@ -254,14 +328,19 @@ def complete_profile():
         if user.role == "CaseParticipant":
             address = data.get("address")
 
-            if address:
-                client = Caseparticipant(
-                    userid=user.userid,
-                    address=address,
-                )
+            if not address:
+                return jsonify({
+                    "success": False,
+                    "message": "Address is required.",
+                }), 400
 
-                db.add(client)
-                db.commit()
+            client = Caseparticipant(
+                userid=user.userid,
+                address=address,
+            )
+
+            db.add(client)
+            db.commit()
 
         # ----------------------------------------------------------
         # Admin
@@ -288,6 +367,12 @@ def complete_profile():
                     "success": False,
                     "message": "Bar license and experience must be valid numbers.",
                 }), 400
+
+            if db.query(Lawyer).filter_by(barlicenseno=barlicenseno).first():
+                return jsonify({
+                    "success": False,
+                    "message": "This bar license number is already registered to another account. Please double-check it and try again.",
+                }), 409
 
             lawyer = Lawyer(
                 userid=user.userid,
@@ -335,6 +420,27 @@ def complete_profile():
             db.add(registrar)
             db.commit()
 
+        # One-shot: this OTP-verification proof is consumed the moment the
+        # profile it was meant for is completed, verified or not.
+        session.pop("otp_verified_user_id", None)
+
+        if user.role in ROLES_REQUIRING_APPROVAL:
+            approval_status = db.execute(
+                text("SELECT approval_status FROM users WHERE userid=:uid"),
+                {"uid": user.userid},
+            ).scalar()
+            if approval_status != "approved":
+                return jsonify({
+                    "success": True,
+                    "pending_approval": True,
+                    "message": (
+                        "Your profile is complete. A "
+                        f"{'judge' if user.role == 'Judge' else 'court registrar'} "
+                        "account needs admin approval before you can log in — "
+                        "you'll be notified once it's reviewed."
+                    ),
+                }), 200
+
         login_user(user)
 
         return jsonify({
@@ -345,8 +451,19 @@ def complete_profile():
     except Exception as e:
         db.rollback()
 
+        # Never surface a raw SQL/constraint error to the user — translate
+        # the ones we know about into plain language, and keep the rest
+        # generic rather than dumping database internals on-screen.
+        err_text = str(e)
+        if "lawyer_barlicenseno_key" in err_text:
+            message = "This bar license number is already registered to another account. Please double-check it and try again."
+        else:
+            message = "Something went wrong while completing your profile. Please try again."
+            current_app.logger.error("complete_profile failed: %s", err_text)
+
         return jsonify({
-            "message": f"An error occurred while completing the profile: {str(e)}"
+            "success": False,
+            "message": message,
         }), 500
 
     finally:
@@ -358,29 +475,63 @@ def complete_profile():
 # ------------------------------------------------------------------
 @auth_bp.route("/api/login", methods=["POST"])
 def login():
-    data = request.get_json()
+    data = request.get_json() or {}
 
-    email = data.get("email")
-    password = data.get("password")
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+
+    if not email or not password:
+        return jsonify({
+            "success": False,
+            "message": "Email and password are required.",
+        }), 400
 
     db = SessionLocal()
 
     try:
+        # order_by is a safety net for any pre-existing duplicate-email rows
+        # (email is now enforced unique at signup, going forward)
         user = (
             db.query(Users)
             .filter_by(email=email)
+            .order_by(Users.userid.desc())
             .first()
         )
 
         if user and _verify_password(user.password, password):
-            # Block unverified users
-            if not getattr(user, 'is_email_verified', True):
+            # Block unverified users. is_email_verified isn't a mapped ORM
+            # column on Users (added to the DB directly, never added to
+            # models.py), so it has to be read via raw SQL — a getattr on
+            # the ORM object here would silently always return the default
+            # instead of the real value, regardless of which default you pick.
+            is_verified = db.execute(
+                text("SELECT is_email_verified FROM users WHERE userid=:uid"),
+                {"uid": user.userid},
+            ).scalar()
+            if not is_verified:
                 return jsonify({
                     "success": False,
                     "message": "Please verify your email before logging in. Check your inbox for the verification link.",
                     "email_not_verified": True,
                     "email": user.email,
                 }), 403
+
+            if user.role in ROLES_REQUIRING_APPROVAL:
+                approval_status = db.execute(
+                    text("SELECT approval_status FROM users WHERE userid=:uid"),
+                    {"uid": user.userid},
+                ).scalar()
+                if approval_status == "pending":
+                    return jsonify({
+                        "success": False,
+                        "message": "Your account is awaiting admin approval. You'll be able to log in once it's reviewed.",
+                        "pending_approval": True,
+                    }), 403
+                if approval_status == "rejected":
+                    return jsonify({
+                        "success": False,
+                        "message": "Your account application was not approved. Contact the administrator for details.",
+                    }), 403
 
             login_user(user)
 
@@ -424,7 +575,8 @@ def verify_otp():
         conn = get_pg_connection()
         cur = conn.cursor()
         cur.execute(
-            "SELECT userid, email_verification_token, token_expires_at, firstname FROM users WHERE email = %s",
+            "SELECT userid, email_verification_token, token_expires_at, firstname "
+            "FROM users WHERE email = %s ORDER BY userid DESC LIMIT 1",
             (email,),
         )
         row = cur.fetchone()
@@ -445,6 +597,11 @@ def verify_otp():
             (user_id,),
         )
         conn.commit()
+
+        # Proof, bound to this browser's server-side session, that this
+        # specific account just passed OTP verification. complete-profile
+        # trusts this instead of a client-supplied user_id.
+        session['otp_verified_user_id'] = user_id
 
         from utils.logging import write_log
         write_log("UPDATE", f"User verified their email: {email}", "user")
@@ -474,12 +631,17 @@ def resend_otp():
 
     db = SessionLocal()
     try:
-        user = db.query(Users).filter_by(email=email).first()
+        user = db.query(Users).filter_by(email=email).order_by(Users.userid.desc()).first()
         if not user:
             return jsonify({"success": True, "message": "If that email is registered, a new code has been sent."}), 200
 
-        if purpose == "verify" and getattr(user, 'is_email_verified', False):
-            return jsonify({"success": False, "message": "This account is already verified."}), 400
+        if purpose == "verify":
+            is_verified = db.execute(
+                text("SELECT is_email_verified FROM users WHERE userid=:uid"),
+                {"uid": user.userid},
+            ).scalar()
+            if is_verified:
+                return jsonify({"success": False, "message": "This account is already verified."}), 400
 
         otp = str(random.randint(100000, 999999))
         expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
@@ -516,7 +678,7 @@ def forgot_password():
 
     db = SessionLocal()
     try:
-        user = db.query(Users).filter_by(email=email).first()
+        user = db.query(Users).filter_by(email=email).order_by(Users.userid.desc()).first()
         if not user:
             return jsonify({"success": True, "message": "If that email is registered, a reset code has been sent."}), 200
 
@@ -559,7 +721,8 @@ def reset_password():
         conn = get_pg_connection()
         cur = conn.cursor()
         cur.execute(
-            "SELECT userid, password_reset_token, reset_token_expires_at FROM users WHERE email = %s",
+            "SELECT userid, password_reset_token, reset_token_expires_at "
+            "FROM users WHERE email = %s ORDER BY userid DESC LIMIT 1",
             (email,),
         )
         row = cur.fetchone()

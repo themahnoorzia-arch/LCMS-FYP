@@ -47,7 +47,7 @@ def get_hearings():
                 JOIN lawyer l ON l.lawyerid = cla.lawyerid
                 LEFT JOIN courtaccess ca ON ca.caseid = c.caseid
                 LEFT JOIN court ct ON ct.courtid = ca.courtid
-                WHERE l.userid = %s
+                WHERE l.userid = %s AND LOWER(cla.status) = 'approved'
                 ORDER BY h.hearingdate DESC
                 """,
                 (userid,),
@@ -69,7 +69,24 @@ def get_hearings():
                 """,
                 (userid,),
             )
+        elif role == "CourtRegistrar":
+            cur.execute(
+                """
+                SELECT h.hearingid, h.hearingdate, h.hearingtime, h.venue,
+                       h.remarks, h.hearingstatus, c.caseid, c.title AS casename,
+                       ct.courtname
+                FROM hearings h
+                JOIN cases c ON h.caseid = c.caseid
+                JOIN courtaccess ca ON ca.caseid = c.caseid
+                JOIN courtregistrar cr ON cr.courtid = ca.courtid
+                LEFT JOIN court ct ON ct.courtid = ca.courtid
+                WHERE cr.userid = %s
+                ORDER BY h.hearingdate DESC
+                """,
+                (userid,),
+            )
         else:
+            # Admin only — a system-wide view is appropriate here.
             cur.execute(
                 """
                 SELECT h.hearingid, h.hearingdate, h.hearingtime, h.venue,
@@ -170,7 +187,7 @@ def schedule_hearing():
         judgeid = judge_row[0]
 
         cur.execute(
-            """SELECT c.caseid, c.title
+            """SELECT c.caseid, c.title, c.status
                FROM cases c
                JOIN judgeaccess ja ON ja.caseid = c.caseid
                WHERE c.caseid = %s AND ja.judgeid = %s""",
@@ -180,6 +197,8 @@ def schedule_hearing():
         if not case_row:
             return jsonify({"error": "Case not found or not assigned to you"}), 404
         casetitle = case_row[1]
+        if case_row[2] == "Closed":
+            return jsonify({"error": "This case is closed and cannot be scheduled"}), 409
 
         cur.execute(
             "SELECT hearingid, hearingdate FROM hearings WHERE caseid = %s AND hearingstatus = 'scheduled' LIMIT 1",
@@ -194,8 +213,17 @@ def schedule_hearing():
             }), 409
 
         cur.execute(
-            "SELECT COALESCE(MAX(hearingid), 0) + 1 FROM hearings"
+            """SELECT 1 FROM hearings
+               WHERE judgeid = %s AND hearingdate = %s AND hearingtime = %s
+                 AND hearingstatus = 'scheduled'""",
+            (judgeid, hearingdate, hearingtime),
         )
+        if cur.fetchone():
+            return jsonify({"error": "You already have another hearing scheduled at that date and time"}), 409
+
+        # nextval() is atomic — safe against two requests picking the same id,
+        # unlike the previous SELECT MAX(hearingid)+1 pattern.
+        cur.execute("SELECT nextval('hearings_hearingid_seq')")
         next_hid = cur.fetchone()[0]
 
         cur.execute(
@@ -211,7 +239,8 @@ def schedule_hearing():
         try:
             from utils.notifications import push_notification
             cur.execute(
-                "SELECT l.userid FROM lawyer l JOIN caselawyeraccess cla ON cla.lawyerid = l.lawyerid WHERE cla.caseid = %s",
+                "SELECT l.userid FROM lawyer l JOIN caselawyeraccess cla ON cla.lawyerid = l.lawyerid "
+                "WHERE cla.caseid = %s AND LOWER(cla.status) = 'approved'",
                 (caseid,),
             )
             for row in cur.fetchall():
@@ -354,6 +383,30 @@ def update_hearing_status(hearing_id):
     try:
         conn = get_pg_connection()
         cur = conn.cursor()
+
+        cur.execute("SELECT caseid, judgeid FROM hearings WHERE hearingid = %s", (hearing_id,))
+        hearing_row = cur.fetchone()
+        if not hearing_row:
+            return jsonify({"error": "Hearing not found"}), 404
+        hearing_caseid, hearing_judgeid = hearing_row
+
+        if current_user.role == "Judge":
+            cur.execute(
+                "SELECT 1 FROM judge WHERE judgeid = %s AND userid = %s",
+                (hearing_judgeid, current_user.userid),
+            )
+            if not cur.fetchone():
+                return jsonify({"error": "You are not assigned to this hearing"}), 403
+        elif current_user.role == "CourtRegistrar":
+            cur.execute(
+                """SELECT 1 FROM courtregistrar cr
+                   JOIN courtaccess ca ON ca.courtid = cr.courtid
+                   WHERE cr.userid = %s AND ca.caseid = %s""",
+                (current_user.userid, hearing_caseid),
+            )
+            if not cur.fetchone():
+                return jsonify({"error": "This case is not assigned to your court"}), 403
+
         cur.execute(
             "UPDATE hearings SET hearingstatus = %s WHERE hearingid = %s",
             (new_status.lower(), hearing_id),
@@ -371,7 +424,8 @@ def update_hearing_status(hearing_id):
                 cid = h[0]
                 label = new_status.capitalize()
                 cur.execute(
-                    "SELECT l.userid FROM lawyer l JOIN caselawyeraccess cla ON cla.lawyerid = l.lawyerid WHERE cla.caseid = %s",
+                    "SELECT l.userid FROM lawyer l JOIN caselawyeraccess cla ON cla.lawyerid = l.lawyerid "
+                    "WHERE cla.caseid = %s AND LOWER(cla.status) = 'approved'",
                     (cid,),
                 )
                 for row in cur.fetchall():
@@ -403,6 +457,8 @@ def update_hearing_status(hearing_id):
 )
 @login_required
 def add_hearing_venue():
+    if current_user.role not in ("CourtRegistrar", "Admin"):
+        return jsonify({"success": False, "message": "Access denied"}), 403
 
     data = request.get_json()
 
@@ -423,6 +479,17 @@ def add_hearing_venue():
 
         cur = conn.cursor()
 
+        if current_user.role == "CourtRegistrar":
+            cur.execute(
+                """SELECT 1 FROM hearings h
+                   JOIN courtaccess ca ON ca.caseid = h.caseid
+                   JOIN courtregistrar cr ON cr.courtid = ca.courtid
+                   WHERE h.hearingid = %s AND cr.userid = %s""",
+                (hearing_id, current_user.userid),
+            )
+            if not cur.fetchone():
+                return jsonify({"success": False, "message": "This hearing is not in your court"}), 403
+
         cur.execute(
             """
             UPDATE hearings
@@ -434,6 +501,8 @@ def add_hearing_venue():
                 hearing_id
             )
         )
+        if cur.rowcount == 0:
+            return jsonify({"success": False, "message": "Hearing not found"}), 404
 
         conn.commit()
 

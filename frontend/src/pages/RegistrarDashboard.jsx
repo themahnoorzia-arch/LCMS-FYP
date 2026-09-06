@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Container, Row, Col, Card, Button, Modal, Form, ListGroup, Nav, Badge, Tab, Toast, Spinner, InputGroup, Table } from 'react-bootstrap';
-import { Plus, Building2, Users, Gavel, Briefcase, DollarSign, UserCheck, FileText, Search, Trash2, Edit2, ArrowLeft, Bell, User, Eye, Mail, Phone, MapPin, Award, Upload, Edit3, Save, ChevronLeft, ChevronRight, CalendarIcon, Clock } from 'lucide-react';
+import { Plus, Building2, Users, Gavel, Briefcase, DollarSign, UserCheck, FileText, Search, Trash2, Edit2, ArrowLeft, User, Eye, Mail, Phone, MapPin, Award, Upload, Edit3, Save, ChevronLeft, ChevronRight, CalendarIcon, Clock } from 'lucide-react';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import lawImage from '../assets/law.png'
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -8,6 +8,7 @@ import CalendarSummary from '../components/dashboard/CalendarSummary';
 import moment from 'moment';
 import '../components/dashboard/CalendarSummary.css';
 import RegistrarHearingSchedule from '../components/dashboard/RegistrarHearingSchedule';
+import Notifications from '../components/dashboard/Notifications';
 
 // Mock data for demonstration
 const mockJudges = [
@@ -46,7 +47,6 @@ const RegistrarDashboard = () => {
   const [searchCourt, setSearchCourt] = useState('');
   
   const [judges, setJudges] = useState([]);
-  const [activityLogs, setActivityLogs] = useState([]);
 
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [verifyingCase, setVerifyingCase] = useState(null);
@@ -67,24 +67,6 @@ const RegistrarDashboard = () => {
   const [judgeOptions, setJudgeOptions] = useState([]);
   const [prosecutorOptions, setProsecutorOptions] = useState([]);
 
-useEffect(() => {
-  const fetchActivityLogs = async () => {
-    try {
-      const response = await fetch('/api/logs/activity', {
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error('Failed to fetch activity logs');
-      const data = await response.json();
-      setActivityLogs(data);
-    } catch (err) {
-      console.error(err);
-      showToast('Error loading activity feed', 'danger');
-    }
-  };
-
-  fetchActivityLogs();
-}, []);
-
 
   // Toast state
   const [toast, setToast] = useState({ show: false, message: '', variant: 'success' });
@@ -102,16 +84,10 @@ useEffect(() => {
   const [searchJudge, setSearchJudge] = useState('');
   const [showJudgeModal, setShowJudgeModal] = useState(false);
   const [editingJudge, setEditingJudge] = useState(null);
-  const [judgeForm, setJudgeForm] = useState({
-    name: '',
-    position: '',
-    experience: '',
-    appointmentDate: '',
-    specialization: '',
-    email: '',
-    password: '',
-    assignedCases: []
-  });
+  const [judgeForm, setJudgeForm] = useState({ id: '', assignedCases: [] });
+  const [availableJudges, setAvailableJudges] = useState([]);
+  const [loadingAvailableJudges, setLoadingAvailableJudges] = useState(false);
+  const [assignJudgeId, setAssignJudgeId] = useState('');
 
   const [courtProsecutors, setCourtProsecutors] = useState([
     { id: 1, name: 'Alex Mason', experience: 5, status: 'Active', assignedCases: ['State v. Smith'] },
@@ -175,6 +151,23 @@ useEffect(() => {
   fetchPayments();
 }, []);
 
+  const handleVerifyPayment = async (paymentId, approve) => {
+    try {
+      const response = await fetch(`/api/payments/${paymentId}/verify`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ approve }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Failed to update payment');
+      await fetchPayments();
+      showToast(approve ? 'Payment verified as Paid.' : 'Payment sent back to the lawyer for re-confirmation.');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    }
+  };
+
 
   const handleSubmitPayment = async (e) => {
     e.preventDefault();
@@ -206,7 +199,6 @@ useEffect(() => {
 
 
   
-  const [courtAppeals, setCourtAppeals] = useState([]);
   const [courtCases, setCourtCases] = useState([]);
   const [errorCases, setErrorCases] = useState(null);
   const [loadingCases, setLoadingCases] = useState(true);
@@ -229,11 +221,6 @@ useEffect(() => {
       setLoadingCases(false); 
     }
   };
-
-  // Fetch court cases for CourtRegistrar role
-  useEffect(() => {
-  fetchCourtCases();
-}, []);
 
 // Fetch pending join requests for registrar
 const fetchJoinRequests = async () => {
@@ -316,44 +303,14 @@ const handleRejectJoinRequest = async (lawyerid, caseid) => {
   // Add state for tab selection
   const [selectedPage, setSelectedPage] = useState('dashboard');
 
-  // Add state and handlers for appeals management at the top of the component
-  const [showAppealModal, setShowAppealModal] = useState(false);
-  const [editingAppeal, setEditingAppeal] = useState(null);
-  const [appealForm, setAppealForm] = useState({ appealNumber: '', originalCaseId: '', appellant: '', respondent: '', dateFiled: '', status: '' });
-  const [searchAppeal, setSearchAppeal] = useState('');
-  // Appeals state: update to include lawyerName, caseName, clientName, appealDate, status, decisionDate, decision
-  const [appeals, setAppeals] = useState([]);
-const getAppeals = async () => {
-  try {
-    const response = await fetch('/api/appeals', {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-    });
-    if (!response.ok) throw new Error(`Error ${response.status}`);
-    const data = await response.json();
-
-    // Map backend fields to frontend fields
-  const mappedAppeals = data.appeals.map(appeal => ({
-  appealId: appeal.appealid,             
-  appealDate: appeal.appealdate,
-  status: appeal.status,
-  caseName: appeal.casename,
-  courtName: appeal.courtname,
-  decision: appeal.decision,
-  decisionDate: appeal.decisiondate,
-  lawyerName: appeal.lawyername,
-  clientName: appeal.clientname
-}));
-
-
-    setAppeals(mappedAppeals);
-  } catch (err) {
-    console.error('Failed to fetch appeals:', err.message);
-  }
-};
+  // Fetch court cases for CourtRegistrar role — refetch on mount and every
+  // time the Cases tab is opened, so changes made elsewhere (judge
+  // assignment, verification, etc.) aren't shown stale.
+  useEffect(() => {
+    if (selectedPage === 'cases' || selectedPage === 'dashboard') {
+      fetchCourtCases();
+    }
+  }, [selectedPage]);
 
 const fetchProsecutors = async () => {
   try {
@@ -421,13 +378,6 @@ const deleteProsecutor = async (id) => {
     console.error('Failed to delete prosecutor:', err);
   }
 };
-
-  const filteredAppeals = appeals.filter(a =>
-  a.lawyerName?.toLowerCase().includes(searchAppeal.toLowerCase()) ||
-  a.caseName?.toLowerCase().includes(searchAppeal.toLowerCase()) ||
-  a.clientName?.toLowerCase().includes(searchAppeal.toLowerCase()) ||
-  a.status?.toLowerCase().includes(searchAppeal.toLowerCase())
-);
 
   // Add state for modals and forms for rooms and cases
   const [showRoomViewModal, setShowRoomViewModal] = useState(false);
@@ -498,6 +448,15 @@ useEffect(() => {
     },
   })
     .then(async (res) => {
+      if (res.status === 404) {
+        // Courts are assigned by an Admin as part of approving a registrar
+        // (never self-registered), so this shouldn't happen for a properly
+        // approved account — surface it clearly rather than silently
+        // failing or bouncing to a self-service form that no longer exists.
+        setCourtError('No court is assigned to your account yet. Please contact an administrator.');
+        setLoadingCourts(false);
+        return null;
+      }
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.message || 'Failed to fetch court');
@@ -505,6 +464,7 @@ useEffect(() => {
       return res.json();
     })
     .then((response) => {
+      if (!response) return;
       const court = response.data;
       setSelectedCourt(court);
       setLoadingCourts(false);
@@ -753,7 +713,6 @@ useEffect(() => {
     setCourtJudges(court.judges || []);
     setCourtProsecutors(court.prosecutors || []);
     setCourtPayments(court.payments || []);
-    setCourtAppeals(court.appeals || []);
     setCourtCases(court.cases || []);
     setActiveTab('courtRooms');
   };
@@ -930,12 +889,6 @@ const handleRoomAdd = () => {
 };
 
 
-  // APPEALS
-  const handleAddAppeal = () => {
-    setCourtAppeals([...courtAppeals, { id: Date.now(), title: `Appeal #${courtAppeals.length+1}` }]);
-    showToast('Appeal added!');
-  };
-
   // CASES
   const handleGrantCase = (courtCase) => {
     if (!courtCases.find(c => c.id === courtCase.id)) setCourtCases([...courtCases, courtCase]);
@@ -950,7 +903,6 @@ const handleRoomAdd = () => {
       judges: courtJudges,
       prosecutors: courtProsecutors,
       payments: courtPayments,
-      appeals: courtAppeals,
       cases: courtCases,
     } : c));
     setSelectedCourt();
@@ -968,7 +920,6 @@ const handleRoomAdd = () => {
     { key: 'cases', label: 'Cases', icon: <Briefcase size={16} /> },
     { key: 'hearingSchedule', label: 'Hearing Schedule', icon: <Gavel size={16} /> },
     { key: 'caseHistory', label: 'Case History', icon: <FileText size={16} /> },
-    { key: 'appeals', label: 'Appeals', icon: <FileText size={16} /> },
     { key: 'evidence', label: 'Evidence', icon: <FileText size={16} /> },
     { key: 'witnesses', label: 'Witnesses', icon: <Users size={16} /> },
     { key: 'payments', label: 'Payments', icon: <DollarSign size={16} /> },
@@ -981,35 +932,6 @@ const handleRoomAdd = () => {
   const filteredRooms = courtRooms.filter(r => r.name.toLowerCase().includes(searchRoom.toLowerCase()));
   const filteredJudges = mockJudges.filter(j => j.name.toLowerCase().includes(searchJudge.toLowerCase()));
   const filteredProsecutors = mockProsecutors.filter(p => p.name.toLowerCase().includes(searchProsecutor.toLowerCase()));
-
-  // Add after other useState hooks
-  const handleAppealFormChange = e => setAppealForm({ ...appealForm, [e.target.name]: e.target.value });
-  const handleAppealSubmit = e => {
-    e.preventDefault();
-    if (editingAppeal) {
-      setAppeals(appeals.map(a => a.id === editingAppeal.id ? { ...editingAppeal, ...appealForm } : a));
-      showToast('Appeal updated!');
-    } else {
-      setAppeals([
-        ...appeals,
-        { ...appealForm, id: Date.now() }
-      ]);
-      showToast('Appeal added!');
-    }
-    setShowAppealModal(false);
-    setEditingAppeal(null);
-    setAppealForm({ appealNumber: '', originalCaseId: '', appellant: '', respondent: '', dateFiled: '', status: '' });
-  };
-  const handleEditAppeal = appeal => {
-    setEditingAppeal(appeal);
-    setAppealForm({ ...appeal });
-    setShowAppealModal(true);
-  };
-  const handleViewAppeal = appeal => {
-    setEditingAppeal(appeal);
-    setAppealForm({ ...appeal });
-    setShowAppealModal(true); // For now, reuse the modal for view/edit
-  };
 
   // Case handlers
   const handleCaseView = (c) => { setViewingCase(c); setShowCaseViewModal(true); };
@@ -1296,53 +1218,6 @@ const handleVerifySubmit = async (e) => {
     });
   };
 
-  // Add state for editing appeal decision
-  const [showDecisionModal, setShowDecisionModal] = useState(false);
-  const [decisionAppeal, setDecisionAppeal] = useState(null);
-  const [decisionForm, setDecisionForm] = useState({ status: '', decisionDate: '', decision: '' });
-
-  const handleOpenDecisionModal = (appeal) => {
-    setDecisionAppeal(appeal);
-    setDecisionForm({
-      status: appeal.status || '',
-      decisionDate: appeal.decisionDate || '',
-      decision: appeal.decision || '',
-    });
-    setShowDecisionModal(true);
-  };
-  const handleCloseDecisionModal = () => {
-    setShowDecisionModal(false);
-    setDecisionAppeal(null);
-  };
-  const handleDecisionFormChange = (e) => {
-    setDecisionForm({ ...decisionForm, [e.target.name]: e.target.value });
-  };
-  const handleDecisionSubmit = async (e) => {
-  e.preventDefault();
-
-  try {
-    const response = await fetch(`/api/appealdecision?appealId=${decisionAppeal.appealId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        appealStatus: decisionForm.status,
-        decisionDate: decisionForm.decisionDate,
-        decision: decisionForm.decision
-      }),
-    });
-
-    if (!response.ok) throw new Error('Failed to update appeal decision');
-
-    showToast('Appeal decision updated!');
-    await getAppeals(); // Refresh list
-    setShowDecisionModal(false);
-    setDecisionAppeal(null);
-  } catch (err) {
-    console.error('Error updating decision:', err);
-    showToast(err.message || 'Failed to update decision', 'danger');
-  }
-};
   // Add after other state declarations
   const [showProsecutorModal, setShowProsecutorModal] = useState(false);
   const [editingProsecutor, setEditingProsecutor] = useState(null);
@@ -1432,38 +1307,29 @@ const handleProsecutorSubmit = async (e) => {
 
 
   // JUDGES
-  const handleJudgeFormChange = (e) => {
-    setJudgeForm({ ...judgeForm, [e.target.name]: e.target.value });
-  };
  const handleJudgeSubmit = async (e) => {
   e.preventDefault();
   try {
     let response;
 
     if (editingJudge) {
-      // Editing: send PUT to update profile
-    response = await fetch('/api/judge', {
-    method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    body: JSON.stringify({
-  id: judgeForm.id,
-  name: judgeForm.name,
-  specialization: judgeForm.specialization,
-  appointmentDate: judgeForm.appointmentDate, // FIXED
-  experience: judgeForm.experience,           // FIXED
-  position: judgeForm.position,
-  assignedCases: judgeForm.assignedCases,
-})
-,
-});
+      // Managing an existing court judge's case assignments only —
+      // their name/position/specialization belong to their own profile.
+      response = await fetch(`/api/judges/${judgeForm.id}/assignments`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ assignedCases: judgeForm.assignedCases }),
+      });
     } else {
-      // Adding new judge: send POST
-      response = await fetch('/api/judges', {
+      // Assigning an already-approved judge to this court (never creates
+      // a new account — judges only exist via normal signup + approval).
+      if (!assignJudgeId) throw new Error('Select a judge to assign.');
+      response = await fetch(`/api/judges/${assignJudgeId}/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(judgeForm),
+        body: JSON.stringify({ assignedCases: judgeForm.assignedCases }),
       });
     }
 
@@ -1478,47 +1344,54 @@ const handleProsecutorSubmit = async (e) => {
     const refreshedJudges = refreshedData.judges || [];
     setJudges(refreshedJudges);
     setJudgeOptions(refreshedJudges);
-    showToast(editingJudge ? 'Judge updated!' : 'Judge added!');
+    showToast(editingJudge ? 'Case assignments updated!' : 'Judge assigned to your court!');
   } catch (err) {
     console.error('Error submitting judge:', err);
     showToast(err.message || 'Error submitting judge', 'danger');
   } finally {
     setShowJudgeModal(false);
     setEditingJudge(null);
-    setJudgeForm({
-      name: '',
-      position: '',
-      experience: '',
-      appointmentDate: '',
-      specialization: '',
-      email: '',
-      password: '',
-      assignedCases: []
-    });
+    setAssignJudgeId('');
+    setJudgeForm({ id: '', assignedCases: [] });
   }
 };
 
 const handleEditJudge = (judge) => {
-  // Defensive: handle both backend and frontend judge object shapes
   setEditingJudge(judge);
-
   setJudgeForm({
-    name: judge.name || `${judge.firstname || ''} ${judge.lastname || ''}`.trim(),
-    position: judge.position || '',
-    experience: judge.expyears || judge.experience || '',
-    appointmentDate: judge.appointmentdate || judge.appointmentDate || '',
-    specialization: judge.specialization || '',
-    email: judge.email || '',
-    password: '',
+    id: judge.judgeid,
     assignedCases: judge.assigned_cases || judge.assignedCases || [],
-    id: judge.judgeid || judge.id || undefined
   });
-
   setShowJudgeModal(true);
 };
 
-  const handleDeleteJudge = (judge) => {
-    setCourtJudges(courtJudges.filter(j => j.id !== judge.id));
+const handleOpenAssignJudge = () => {
+  setEditingJudge(null);
+  setAssignJudgeId('');
+  setJudgeForm({ id: '', assignedCases: [] });
+  setLoadingAvailableJudges(true);
+  fetch('/api/judges/available', { credentials: 'include' })
+    .then(res => res.json())
+    .then(data => setAvailableJudges(data.judges || []))
+    .catch(() => setAvailableJudges([]))
+    .finally(() => setLoadingAvailableJudges(false));
+  setShowJudgeModal(true);
+};
+
+  const handleDeleteJudge = async (judge) => {
+    if (!window.confirm(`Remove ${judge.name} from your court?`)) return;
+    try {
+      const res = await fetch(`/api/judges/${judge.judgeid}/court`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || 'Failed to remove judge');
+      setJudges(prev => prev.filter(j => j.judgeid !== judge.judgeid));
+      showToast('Judge removed from your court!');
+    } catch (err) {
+      showToast(err.message || 'Error removing judge', 'danger');
+    }
   };
 
   // Add state for case history
@@ -1703,19 +1576,13 @@ const handleSaveCaseHistory = async (entry) => {
     fetchAllCaseHistory();
   }, [selectedPage]);
 
-useEffect(() => {
-  if (selectedPage === 'appeals') {
-    getAppeals();
-  }
-}, [selectedPage]);
-
   return (
-    <div style={{ minHeight: '100vh', width: '100vw', height: '100vh', overflow: 'hidden', background: '#f4f6fa', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: '#f4f6fa', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
       <div className="d-flex justify-content-between align-items-center px-4 py-3 bg-white border-bottom" style={{ minHeight: 64, flex: '0 0 auto' }}>
         <div style={{ fontWeight: 600, fontSize: 22 }}>Court Central</div>
         <div className="d-flex align-items-center gap-4">
-          <Bell size={24} style={{ color: '#25304a' }} />
+          <div style={{ color: '#25304a' }}><Notifications /></div>
           <Button 
             variant="link" 
             className="text-decoration-none d-flex align-items-center gap-2" 
@@ -1831,38 +1698,6 @@ useEffect(() => {
                         </div>
                       </Card.Body>
                     </Card>
-                    <Card className="shadow-sm border-0" style={{ borderRadius: 16 }}>
-  <Card.Body>
-    <h3 className="fw-bold mb-3" style={{ color: '#22304a' }}>
-      <i className="bi bi-clock-history me-2"></i>Recent Activity
-    </h3>
-    <div className="table-responsive">
-      <table className="table table-borderless align-middle mb-0">
-        <thead style={{ background: '#f4f6fa' }}>
-          <tr style={{ color: '#22304a', fontWeight: 600 }}>
-            <th>Activity</th>
-            <th>Type</th>
-            <th>Timestamp</th>
-          </tr>
-        </thead>
-        <tbody>
-          {activityLogs.length > 0 ? activityLogs.map((a, i) => (
-            <tr key={i}>
-              <td>{a.activity}</td>
-              <td>{a.type}</td>
-              <td>{a.timestamp}</td>
-            </tr>
-          )) : (
-            <tr>
-              <td colSpan="3" className="text-muted text-center">No recent activity</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  </Card.Body>
-</Card>
-
           </Col>
                   <Col md={4}>
                     <Card className="shadow-sm border-0 mb-4" style={{ borderRadius: 16 }}>
@@ -1877,10 +1712,6 @@ useEffect(() => {
                           <Button variant="light" className="d-flex align-items-center gap-2 justify-content-start text-start border" style={{ fontWeight: 500 }}>
                             <i className="bi bi-file-earmark-text me-2" style={{ color: '#1ec6b6', fontSize: 20 }}></i> Manage Cases
                             <div className="ms-auto small text-muted">Access and manage case information.</div>
-                                  </Button>
-                          <Button variant="light" className="d-flex align-items-center gap-2 justify-content-start text-start border" style={{ fontWeight: 500 }}>
-                            <i className="bi bi-person me-2" style={{ color: '#1ec6b6', fontSize: 20 }}></i> View Appeals
-                            <div className="ms-auto small text-muted">Monitor and process appeals.</div>
                                   </Button>
                                 </div>
                               </Card.Body>
@@ -2106,56 +1937,6 @@ useEffect(() => {
             )}
 
             
-            {selectedPage === 'appeals' && (
-              <Card className="shadow-sm border-0" style={{ borderRadius: 16 }}>
-                <Card.Body>
-                  <div className="d-flex justify-content-between align-items-center mb-3">
-                    <div>
-                      <h2 className="fw-bold mb-1" style={{ color: '#22304a' }}><i className="bi bi-balance-scale me-2"></i>Appeals Monitoring</h2>
-                      <div className="text-muted mb-2">View and monitor appeals heard by the court. Update decision and status as needed.</div>
-                    </div>
-                  </div>
-                  <InputGroup className="mb-3" style={{ maxWidth: 400 }}>
-                    <InputGroup.Text><i className="bi bi-search"></i></InputGroup.Text>
-                    <Form.Control placeholder="Search appeals by lawyer, case, client, or status..." value={searchAppeal} onChange={e => setSearchAppeal(e.target.value)} />
-                  </InputGroup>
-                  <div className="table-responsive">
-                    <table className="table align-middle mb-0">
-                      <thead style={{ background: '#f4f6fa' }}>
-                        <tr style={{ color: '#22304a', fontWeight: 600 }}>
-                          <th>Lawyer</th>
-                          <th>Case Name</th>
-                          <th>Client</th>
-                          <th>Appeal Date</th>
-                          <th>Status</th>
-                          <th>Decision Date</th>
-                          <th>Decision</th>
-                          <th>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredAppeals.map((appeal, i) => (
-                          <tr key={appeal.id}>
-                            <td>{appeal.lawyerName}</td>
-                            <td>{appeal.caseName}</td>
-                            <td>{appeal.clientName}</td>
-                            <td>{appeal.appealDate}</td>
-                            <td>{appeal.status}</td>
-                            <td>{appeal.decisionDate || '-'}</td>
-                            <td>{appeal.decision || '-'}</td>
-                            <td>
-                              <Button variant="outline-primary" size="sm" onClick={() => handleOpenDecisionModal(appeal)}>
-                                Update Decision
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </Card.Body>
-              </Card>
-            )}
             {selectedPage === 'evidence' && (
               <Card className="mb-4">
                 <Card.Header>
@@ -2185,7 +1966,9 @@ useEffect(() => {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredEvidence.map(e => (
+                        {filteredEvidence.length === 0 ? (
+                          <tr><td colSpan={5} className="text-center text-muted py-4">No evidence found.</td></tr>
+                        ) : filteredEvidence.map(e => (
                           <tr key={e.id}>
                             <td>{e.evidenceType}</td>
                             <td>{e.description}</td>
@@ -2230,7 +2013,9 @@ useEffect(() => {
             </tr>
           </thead>
           <tbody>
-            {filteredWitnesses.flatMap(({ witness, cases }) =>
+            {filteredWitnesses.length === 0 ? (
+              <tr><td colSpan={6} className="text-center text-muted py-4">No witnesses found.</td></tr>
+            ) : filteredWitnesses.flatMap(({ witness, cases }) =>
               cases.map(caseInfo => (
                 <tr key={`${witness.id}-${caseInfo.caseid}`}>
                   <td>{`${witness.firstname || ''} ${witness.lastname || ''}`.trim()}</td>
@@ -2313,15 +2098,18 @@ useEffect(() => {
                   </tr>
                 </thead>
                <tbody>
-  {courtPayments
-    .filter(
+  {(() => {
+    const filteredPayments = courtPayments.filter(
       (p) =>
         (p.caseName?.toLowerCase() || '').includes(searchPayment.toLowerCase()) ||
         (p.lawyerName?.toLowerCase() || '').includes(searchPayment.toLowerCase()) ||
         (p.clientName?.toLowerCase() || '').includes(searchPayment.toLowerCase()) ||
         (p.status?.toLowerCase() || '').includes(searchPayment.toLowerCase())
-    )
-    .map((payment) => (
+    );
+    if (filteredPayments.length === 0) {
+      return <tr><td colSpan={10} className="text-center text-muted py-4">No payments found.</td></tr>;
+    }
+    return filteredPayments.map((payment) => (
       <tr key={payment.id}>
         <td>{payment.caseName}</td>
         <td>{payment.lawyerName || 'N/A'}</td>  {/* Assuming you handle lawyerName properly */}
@@ -2332,13 +2120,25 @@ useEffect(() => {
         <td>{payment.mode}</td>
         <td>{payment.paymentDate}</td>
         <td>
-          <Badge bg={payment.status === 'Paid' ? 'success' : 'warning'}>
+          <Badge bg={
+            payment.status === 'Paid' ? 'success'
+            : payment.status === 'Pending Verification' ? 'info'
+            : 'warning'
+          }>
             {payment.status}
           </Badge>
         </td>
-        <td></td>
+        <td>
+          {payment.status === 'Pending Verification' && (
+            <div className="d-flex gap-2">
+              <Button size="sm" variant="success" onClick={() => handleVerifyPayment(payment.id, true)}>Verify</Button>
+              <Button size="sm" variant="outline-danger" onClick={() => handleVerifyPayment(payment.id, false)}>Reject</Button>
+            </div>
+          )}
+        </td>
       </tr>
-    ))}
+    ));
+  })()}
 </tbody>
 
               </table>
@@ -2383,9 +2183,13 @@ useEffect(() => {
                         </tr>
                       </thead>
                       <tbody>
-                        {courtProsecutors
-                          .filter(p => p.name.toLowerCase().includes(searchProsecutor.toLowerCase()))
-                          .map((prosecutor) => (
+                        {(() => {
+                          const filteredProsecutors = courtProsecutors
+                            .filter(p => p.name.toLowerCase().includes(searchProsecutor.toLowerCase()));
+                          if (filteredProsecutors.length === 0) {
+                            return <tr><td colSpan={5} className="text-center text-muted py-4">No prosecutors found.</td></tr>;
+                          }
+                          return filteredProsecutors.map((prosecutor) => (
                             <tr key={prosecutor.id}>
                               <td>{prosecutor.name}</td>
                               <td>{prosecutor.experience} years</td>
@@ -2414,7 +2218,8 @@ useEffect(() => {
                                 </Button>
                               </td>
                             </tr>
-                          ))}
+                          ));
+                        })()}
                       </tbody>
                     </table>
                   </div>
@@ -2429,14 +2234,10 @@ useEffect(() => {
           <h2 className="fw-bold mb-1" style={{ color: '#22304a' }}>
             <i className="bi bi-person-badge me-2"></i>Judge Management
           </h2>
-          <div className="text-muted mb-2">Manage court judges and their case assignments.</div>
+          <div className="text-muted mb-2">Assign approved judges to your court and manage their case assignments.</div>
         </div>
-        <Button variant="primary" className="d-flex align-items-center gap-2" onClick={() => {
-          setEditingJudge(null);
-          setJudgeForm({ name: '', position: '', experience: '', appointmentDate: '', specialization: '', email: '', password: '', assignedCases: [] });
-          setShowJudgeModal(true);
-        }}>
-          <Plus size={20} /> Add Judge
+        <Button variant="primary" className="d-flex align-items-center gap-2" onClick={handleOpenAssignJudge}>
+          <Plus size={20} /> Assign Judge
         </Button>
       </div>
       <InputGroup className="mb-3" style={{ maxWidth: 400 }}>
@@ -2461,9 +2262,13 @@ useEffect(() => {
             </tr>
           </thead>
           <tbody>
-            {judges
-              .filter(j => j.name?.toLowerCase().includes(searchJudge.toLowerCase()))
-              .map((judge) => (
+            {(() => {
+              const filteredJudges = judges
+                .filter(j => j.name?.toLowerCase().includes(searchJudge.toLowerCase()));
+              if (filteredJudges.length === 0) {
+                return <tr><td colSpan={7} className="text-center text-muted py-4">No judges found.</td></tr>;
+              }
+              return filteredJudges.map((judge) => (
                 <tr key={judge.judgeid}>
                   <td>{judge.name}</td>
                   <td>{judge.position}</td>
@@ -2483,14 +2288,15 @@ useEffect(() => {
                   </td>
                   <td>
                     <Button variant="outline-primary" size="sm" className="me-2" onClick={() => handleEditJudge(judge)}>
-                      Edit
+                      Manage Cases
                     </Button>
                     <Button variant="outline-danger" size="sm" onClick={() => handleDeleteJudge(judge)}>
                       Remove
                     </Button>
                   </td>
                 </tr>
-              ))}
+              ));
+            })()}
           </tbody>
         </table>
       </div>
@@ -2498,7 +2304,7 @@ useEffect(() => {
   </Card>
 )}
 
-          
+
             {selectedPage === 'caseHistory' && (
               <>
                 <Card className="shadow-sm border-0" style={{ borderRadius: 16 }}>
@@ -2742,54 +2548,6 @@ useEffect(() => {
         </Form>
       </Modal>
 
-      {/* Add/Edit Appeal Modal */}
-      <Modal show={showAppealModal} onHide={() => { setShowAppealModal(false); setEditingAppeal(null); }} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>{editingAppeal ? 'Edit Appeal' : 'Add New Appeal'}</Modal.Title>
-        </Modal.Header>
-        <Form onSubmit={handleAppealSubmit}>
-          <Modal.Body>
-            <Form.Group className="mb-3">
-              <Form.Label>Appeal Number</Form.Label>
-              <Form.Control type="text" name="appealNumber" value={appealForm.appealNumber} onChange={handleAppealFormChange} required autoFocus />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Original Case ID</Form.Label>
-              <Form.Control type="text" name="originalCaseId" value={appealForm.originalCaseId} onChange={handleAppealFormChange} required />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Appellant</Form.Label>
-              <Form.Control type="text" name="appellant" value={appealForm.appellant} onChange={handleAppealFormChange} required />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Respondent</Form.Label>
-              <Form.Control type="text" name="respondent" value={appealForm.respondent} onChange={handleAppealFormChange} required />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Date Filed</Form.Label>
-              <Form.Control type="date" name="dateFiled" value={appealForm.dateFiled} onChange={handleAppealFormChange} required />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Status</Form.Label>
-              <Form.Select name="status" value={appealForm.status} onChange={handleAppealFormChange} required>
-                <option value="">Select status</option>
-                <option value="Under Review">Under Review</option>
-                <option value="Hearing Scheduled">Hearing Scheduled</option>
-                <option value="Decided">Decided</option>
-              </Form.Select>
-            </Form.Group>
-          </Modal.Body>
-          <Modal.Footer>
-            <Button variant="secondary" onClick={() => { setShowAppealModal(false); setEditingAppeal(null); }}>
-              Cancel
-            </Button>
-            <Button variant="primary" type="submit" disabled={loading}>
-              {loading ? <Spinner animation="border" size="sm" className="me-2" /> : null}
-              {editingAppeal ? 'Save Changes' : 'Add Appeal'}
-            </Button>
-          </Modal.Footer>
-        </Form>
-      </Modal>
       {/* Room View Modal */}
       <Modal show={showRoomViewModal} onHide={() => setShowRoomViewModal(false)} centered>
         <Modal.Header closeButton><Modal.Title>Room Details</Modal.Title></Modal.Header>
@@ -3235,38 +2993,6 @@ useEffect(() => {
         </Modal.Footer>
       </Modal>
 
-      {/* Appeal Decision Modal */}
-      <Modal show={showDecisionModal} onHide={handleCloseDecisionModal} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>Update Appeal Decision</Modal.Title>
-        </Modal.Header>
-        <Form onSubmit={handleDecisionSubmit}>
-          <Modal.Body>
-            <Form.Group className="mb-3">
-              <Form.Label>Status</Form.Label>
-              <Form.Select name="status" value={decisionForm.status} onChange={handleDecisionFormChange} required>
-                <option value="">Select status</option>
-                <option value="Under Review">Under Review</option>
-                <option value="Hearing Scheduled">Hearing Scheduled</option>
-                <option value="Decided">Decided</option>
-              </Form.Select>
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Decision Date</Form.Label>
-              <Form.Control type="date" name="decisionDate" value={decisionForm.decisionDate} onChange={handleDecisionFormChange} required />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Decision</Form.Label>
-              <Form.Control as="textarea" name="decision" value={decisionForm.decision} onChange={handleDecisionFormChange} required />
-            </Form.Group>
-          </Modal.Body>
-          <Modal.Footer>
-            <Button variant="secondary" onClick={handleCloseDecisionModal}>Cancel</Button>
-            <Button variant="primary" type="submit">Save</Button>
-          </Modal.Footer>
-        </Form>
-      </Modal>
-
       {/* Payment Add/Edit Modal */}
       <Modal show={showPaymentModal} onHide={() => setShowPaymentModal(false)} centered>
         <Modal.Header closeButton>
@@ -3472,92 +3198,46 @@ useEffect(() => {
         </Form>
       </Modal>
 
-      {/* Judge Add/Edit Modal */}
+      {/* Judge Assign/Manage Modal */}
       <Modal show={showJudgeModal} onHide={() => setShowJudgeModal(false)} centered>
         <Modal.Header closeButton>
-          <Modal.Title>{editingJudge ? 'Edit Judge' : 'Add New Judge'}</Modal.Title>
+          <Modal.Title>{editingJudge ? 'Manage Case Assignments' : 'Assign Judge to Your Court'}</Modal.Title>
         </Modal.Header>
         <Form onSubmit={handleJudgeSubmit}>
           <Modal.Body>
-            <Form.Group className="mb-3">
-              <Form.Label>Name</Form.Label>
-              <Form.Control
-                type="text"
-                name="name"
-                value={judgeForm.name}
-                onChange={handleJudgeFormChange}
-                required
-              />
-            </Form.Group>
-            {!editingJudge && (
-              <>
-                <Form.Group className="mb-3">
-                  <Form.Label>Login Email</Form.Label>
-                  <Form.Control
-                    type="email"
-                    name="email"
-                    value={judgeForm.email}
-                    onChange={handleJudgeFormChange}
-                    required
-                  />
-                </Form.Group>
-                <Form.Group className="mb-3">
-                  <Form.Label>Temporary Password</Form.Label>
-                  <Form.Control
-                    type="password"
-                    name="password"
-                    value={judgeForm.password}
-                    onChange={handleJudgeFormChange}
-                    minLength={8}
-                    required
-                  />
+            {editingJudge ? (
+              <div className="mb-3">
+                <div className="fw-bold">{editingJudge.name}</div>
+                <div className="text-muted small">
+                  {editingJudge.position}{editingJudge.specialization ? ` · ${editingJudge.specialization}` : ''}
+                </div>
+              </div>
+            ) : (
+              <Form.Group className="mb-3">
+                <Form.Label>Judge</Form.Label>
+                {loadingAvailableJudges ? (
+                  <div className="text-muted small">Loading judges...</div>
+                ) : (
+                  <Form.Select value={assignJudgeId} onChange={e => setAssignJudgeId(e.target.value)} required>
+                    <option value="">Select a judge</option>
+                    {availableJudges.map(j => (
+                      <option key={j.judgeid} value={j.judgeid}>
+                        {j.firstname} {j.lastname} — {j.position || 'Judge'}
+                        {j.current_courts ? ` (currently at ${j.current_courts})` : ' (not currently at any court)'}
+                      </option>
+                    ))}
+                  </Form.Select>
+                )}
+                {!loadingAvailableJudges && availableJudges.length === 0 && (
                   <Form.Text className="text-muted">
-                    Give this temporary password to the judge for their first login.
+                    No approved judges are available to assign right now.
                   </Form.Text>
-                </Form.Group>
-              </>
+                )}
+                <Form.Text className="text-muted d-block">
+                  Judges can serve more than one court — this doesn't remove them from any court shown above.
+                </Form.Text>
+              </Form.Group>
             )}
-            <Form.Group className="mb-3">
-              <Form.Label>Position</Form.Label>
-              <Form.Control
-                type="text"
-                name="position"
-                value={judgeForm.position}
-                onChange={handleJudgeFormChange}
-                required
-              />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Experience (years)</Form.Label>
-              <Form.Control
-                type="number"
-                name="experience"
-                value={judgeForm.experience}
-                onChange={handleJudgeFormChange}
-                required
-                min="0"
-              />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Appointment Date</Form.Label>
-              <Form.Control
-                type="date"
-                name="appointmentDate"
-                value={judgeForm.appointmentDate}
-                onChange={handleJudgeFormChange}
-                required
-              />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Specialization</Form.Label>
-              <Form.Control
-                type="text"
-                name="specialization"
-                value={judgeForm.specialization}
-                onChange={handleJudgeFormChange}
-                required
-              />
-            </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Assign Cases</Form.Label>
               <Form.Select
@@ -3585,7 +3265,7 @@ useEffect(() => {
               Cancel
             </Button>
             <Button variant="primary" type="submit">
-              {editingJudge ? 'Save Changes' : 'Add Judge'}
+              {editingJudge ? 'Save Changes' : 'Assign Judge'}
             </Button>
           </Modal.Footer>
         </Form>

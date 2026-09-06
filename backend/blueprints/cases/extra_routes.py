@@ -1,80 +1,14 @@
 """Routes migrated from the legacy monolithic app (hearings write and decisions)."""
 import datetime
-import os
-import uuid
 
-from flask import jsonify, request, send_file
+from flask import jsonify, request
 from flask_login import login_required, current_user
-from werkzeug.utils import secure_filename
 
 import psycopg2.extras
 
 from blueprints.cases import cases_bp
 from db.db import SessionLocal, get_pg_connection
 
-# ---------------------------------------------------------------------------
-# File storage helpers
-# ---------------------------------------------------------------------------
-_UPLOAD_BASE = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '..', '..', '..', 'uploads')
-)
-_ALLOWED = {'pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'txt', 'xlsx', 'xls'}
-
-
-def _case_folder(case_id):
-    folder = os.path.join(_UPLOAD_BASE, f'case_{case_id}')
-    os.makedirs(folder, exist_ok=True)
-    return folder
-
-
-def _allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in _ALLOWED
-
-
-# ---------------------------------------------------------------------------
-# Access control helpers
-# ---------------------------------------------------------------------------
-def _user_has_case_access(cur, userid, role, case_id):
-    """Return True if the user has any association with this case."""
-    if role in ('CourtRegistrar', 'Admin'):
-        cur.execute("SELECT 1 FROM cases WHERE caseid = %s", (case_id,))
-        return bool(cur.fetchone())
-    if role == 'Lawyer':
-        cur.execute(
-            """SELECT 1 FROM caselawyeraccess cla
-               JOIN lawyer l ON l.lawyerid = cla.lawyerid
-               WHERE cla.caseid = %s AND l.userid = %s
-                 AND (cla.status IS NULL OR LOWER(cla.status) = 'approved')""",
-            (case_id, userid),
-        )
-    elif role == 'Judge':
-        cur.execute(
-            """SELECT 1 FROM judgeaccess ja
-               JOIN judge j ON j.judgeid = ja.judgeid
-               WHERE ja.caseid = %s AND j.userid = %s""",
-            (case_id, userid),
-        )
-    elif role in ('Client', 'CaseParticipant'):
-        cur.execute(
-            """SELECT 1 FROM caseparticipantaccess cpa
-               JOIN caseparticipant cp ON cp.participantid = cpa.participantid
-               WHERE cpa.caseid = %s AND cp.userid = %s""",
-            (case_id, userid),
-        )
-    else:
-        return False
-    return bool(cur.fetchone())
-
-
-def _visibility_sql(role):
-    """Return SQL fragment for which visibility levels the role can see (excluding own docs)."""
-    if role == 'Judge':
-        return "d.visibility = 'court'"
-    if role in ('CourtRegistrar', 'Admin'):
-        # Registrar sees court + team (they manage cases)
-        return "d.visibility IN ('court', 'team')"
-    # Lawyer, Client, CaseParticipant — see court + team
-    return "d.visibility IN ('court', 'team')"
 from models import (
     Cases,
     Casehistory,
@@ -183,216 +117,12 @@ def get_all_case_history():
             conn.close()
 
 
-def get_case_documents(case_id):
-    conn = None
-    try:
-        conn = get_pg_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-        role = current_user.role
-        userid = current_user.userid
-
-        if not _user_has_case_access(cur, userid, role, case_id):
-            return jsonify({"error": "Access denied"}), 403
-
-        vis_sql = _visibility_sql(role)
-        cur.execute(
-            f"""
-            SELECT d.documentid AS id,
-                   d.documenttitle AS title,
-                   d.documenttype AS type,
-                   d.uploaddate,
-                   d.filepath,
-                   d.visibility,
-                   d.uploaded_by,
-                   TRIM(u.firstname || ' ' || u.lastname) AS uploader_name
-            FROM documents d
-            JOIN documentcase dc ON dc.documentid = d.documentid
-            LEFT JOIN users u ON u.userid = d.uploaded_by
-            WHERE dc.caseid = %s
-              AND (d.uploaded_by = %s OR {vis_sql})
-            ORDER BY d.uploaddate DESC
-            """,
-            (case_id, userid),
-        )
-        docs = [dict(r) for r in cur.fetchall()]
-        # mark which docs the current user owns (for delete permission on frontend)
-        for d in docs:
-            d['is_own'] = (d['uploaded_by'] == userid)
-            if d['uploaddate']:
-                d['uploaddate'] = d['uploaddate'].isoformat()
-        return jsonify({"documents": docs}), 200
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-    finally:
-        if conn:
-            conn.close()
-
-
-def upload_case_document(case_id):
-    conn = None
-    try:
-        conn = get_pg_connection()
-        cur = conn.cursor()
-
-        role = current_user.role
-        userid = current_user.userid
-
-        if not _user_has_case_access(cur, userid, role, case_id):
-            return jsonify({"error": "Access denied"}), 403
-
-        if 'file' not in request.files:
-            return jsonify({"error": "No file provided"}), 400
-
-        file = request.files['file']
-        if not file or file.filename == '':
-            return jsonify({"error": "No file selected"}), 400
-        if not _allowed_file(file.filename):
-            return jsonify({"error": "File type not allowed"}), 400
-
-        doc_type = request.form.get('documenttype', 'Other')
-        visibility = request.form.get('visibility', 'court')
-        if visibility not in ('court', 'team', 'private'):
-            visibility = 'court'
-
-        # Judges cannot upload 'team' docs (they're not part of lawyer-client team)
-        if role == 'Judge' and visibility == 'team':
-            visibility = 'court'
-
-        # Save file
-        ext = file.filename.rsplit('.', 1)[1].lower()
-        stored_name = f"{uuid.uuid4().hex}.{ext}"
-        folder = _case_folder(case_id)
-        file.save(os.path.join(folder, stored_name))
-        relative_path = f'/uploads/case_{case_id}/{stored_name}'
-
-        cur.execute(
-            """
-            INSERT INTO documents
-                (documenttitle, documenttype, uploaddate, filepath, uploaded_by, visibility)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING documentid
-            """,
-            (
-                secure_filename(file.filename),
-                doc_type,
-                datetime.date.today(),
-                relative_path,
-                userid,
-                visibility,
-            ),
-        )
-        doc_id = cur.fetchone()[0]
-
-        cur.execute(
-            """
-            INSERT INTO documentcase (caseid, documentid, submissiondate)
-            VALUES (%s, %s, %s)
-            ON CONFLICT DO NOTHING
-            """,
-            (case_id, doc_id, datetime.date.today()),
-        )
-        conn.commit()
-        return jsonify({"message": "Document uploaded", "document_id": doc_id}), 201
-
-    except Exception as exc:
-        if conn:
-            conn.rollback()
-        return jsonify({"error": str(exc)}), 500
-    finally:
-        if conn:
-            conn.close()
-
-
-def delete_case_document(case_id, doc_id):
-    conn = None
-    try:
-        conn = get_pg_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-        cur.execute(
-            "SELECT * FROM documents WHERE documentid = %s AND uploaded_by = %s",
-            (doc_id, current_user.userid),
-        )
-        doc = cur.fetchone()
-        if not doc:
-            return jsonify({"error": "Not found or not authorized"}), 403
-
-        # Remove file from disk
-        filepath = doc['filepath']
-        abs_path = os.path.join(_UPLOAD_BASE, *filepath.lstrip('/').split('/')[1:])
-        if os.path.exists(abs_path):
-            os.remove(abs_path)
-
-        cur.execute("DELETE FROM documentcase WHERE documentid = %s", (doc_id,))
-        cur.execute("DELETE FROM documents WHERE documentid = %s", (doc_id,))
-        conn.commit()
-        return jsonify({"message": "Deleted"}), 200
-
-    except Exception as exc:
-        if conn:
-            conn.rollback()
-        return jsonify({"error": str(exc)}), 500
-    finally:
-        if conn:
-            conn.close()
-
-
-def download_document(doc_id):
-    conn = None
-    try:
-        conn = get_pg_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-        cur.execute(
-            """SELECT d.*, dc.caseid FROM documents d
-               JOIN documentcase dc ON dc.documentid = d.documentid
-               WHERE d.documentid = %s""",
-            (doc_id,),
-        )
-        doc = cur.fetchone()
-        if not doc:
-            return jsonify({"error": "Not found"}), 404
-
-        case_id = doc['caseid']
-        role = current_user.role
-        userid = current_user.userid
-
-        # Must have case access
-        if not _user_has_case_access(cur, userid, role, case_id):
-            return jsonify({"error": "Access denied"}), 403
-
-        # Check visibility
-        vis = doc['visibility']
-        if vis == 'private' and doc['uploaded_by'] != userid:
-            return jsonify({"error": "Access denied"}), 403
-        if vis == 'team' and role == 'Judge':
-            return jsonify({"error": "Access denied"}), 403
-
-        # Serve file
-        filepath = doc['filepath']  # e.g. /uploads/case_1/abc.pdf
-        parts = filepath.lstrip('/').split('/', 1)  # ['uploads', 'case_1/abc.pdf']
-        abs_path = os.path.join(_UPLOAD_BASE, parts[1]) if len(parts) > 1 else None
-
-        if not abs_path or not os.path.exists(abs_path):
-            return jsonify({"error": "File not found on server"}), 404
-
-        return send_file(
-            abs_path,
-            as_attachment=True,
-            download_name=doc['documenttitle'],
-        )
-
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-    finally:
-        if conn:
-            conn.close()
-
-
 @cases_bp.route("/cases/<int:case_id>/final-decision", methods=["POST"])
 @login_required
 def add_final_decision(case_id):
+    if (current_user.role or "") != "Judge":
+        return jsonify({"message": "Only judges can submit a final decision"}), 403
+
     conn = None
     try:
         data = request.get_json() or {}
@@ -408,9 +138,18 @@ def add_final_decision(case_id):
         conn = get_pg_connection()
         cur = conn.cursor()
 
-        cur.execute("SELECT 1 FROM cases WHERE caseid = %s", (case_id,))
-        if not cur.fetchone():
-            return jsonify({"message": "Case not found"}), 404
+        cur.execute(
+            """SELECT c.status FROM cases c
+               JOIN judgeaccess ja ON ja.caseid = c.caseid
+               JOIN judge j ON j.judgeid = ja.judgeid
+               WHERE c.caseid = %s AND j.userid = %s""",
+            (case_id, current_user.userid),
+        )
+        case_row = cur.fetchone()
+        if not case_row:
+            return jsonify({"message": "Case not found or not assigned to you"}), 404
+        if case_row[0] == "Closed":
+            return jsonify({"message": "This case is already closed"}), 409
 
         cur.execute(
             """
@@ -445,7 +184,8 @@ def add_final_decision(case_id):
             from utils.notifications import push_notification
             nc = conn.cursor()
             nc.execute(
-                "SELECT l.userid FROM lawyer l JOIN caselawyeraccess cla ON cla.lawyerid = l.lawyerid WHERE cla.caseid = %s",
+                "SELECT l.userid FROM lawyer l JOIN caselawyeraccess cla ON cla.lawyerid = l.lawyerid "
+                "WHERE cla.caseid = %s AND LOWER(cla.status) = 'approved'",
                 (case_id,),
             )
             for row in nc.fetchall():

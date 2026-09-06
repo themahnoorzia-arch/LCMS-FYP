@@ -19,62 +19,6 @@ from models import (
 )
 
 
-@cases_bp.route("/lawyerappeals", methods=["GET"])
-@login_required
-def get_lawyerappeals():
-    conn = None
-    try:
-        conn = get_pg_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT lawyerid FROM lawyer WHERE userid = %s;",
-            (current_user.userid,),
-        )
-        lawyer_row = cur.fetchone()
-        if not lawyer_row:
-            return jsonify({"appeals": []}), 200
-
-        cur.execute(
-            """
-            SELECT
-                a.appealdate,
-                a.appealstatus,
-                a.decisiondate,
-                a.decision,
-                c.title AS casename,
-                ct.courtname
-            FROM appeals a
-            JOIN cases c ON c.caseid = a.caseid
-            JOIN courtaccess ca ON ca.caseid = c.caseid
-            JOIN court ct ON ct.courtid = ca.courtid
-            WHERE a.caseid IN (
-                SELECT caseid FROM caselawyeraccess
-                WHERE lawyerid = %s
-                  AND (status IS NULL OR LOWER(status) = 'approved')
-            )
-            """,
-            (lawyer_row[0],),
-        )
-        rows = cur.fetchall()
-        result = [
-            {
-                "appealdate": row[0],
-                "status": row[1],
-                "decisiondate": row[2],
-                "decision": row[3],
-                "casename": row[4],
-                "courtname": row[5],
-            }
-            for row in rows
-        ]
-        return jsonify({"appeals": result}), 200
-    except Exception as e:
-        return jsonify({"message": str(e)}), 500
-    finally:
-        if conn:
-            conn.close()
-
-
 @cases_bp.route("/lawyer/evidence", methods=["GET"])
 @login_required
 def get_evidence_for_logged_in_lawyer():
@@ -229,8 +173,55 @@ def get_all_evidence():
     try:
         conn = get_pg_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute(
+
+        # No role scoping here used to mean any logged-in user of any role
+        # saw every piece of evidence in the system. Scope to whichever
+        # cases this user actually has access to; Admin gets everything.
+        role = current_user.role
+        userid = current_user.userid
+        access_clause = ""
+        params = []
+        if role == "Lawyer":
+            access_clause = """
+                AND EXISTS (
+                    SELECT 1 FROM caselawyeraccess cla
+                    JOIN lawyer l ON l.lawyerid = cla.lawyerid
+                    WHERE cla.caseid = c.caseid AND l.userid = %s
+                      AND LOWER(cla.status) = 'approved'
+                )
             """
+            params = [userid]
+        elif role == "CaseParticipant":
+            access_clause = """
+                AND EXISTS (
+                    SELECT 1 FROM caseparticipantaccess cpa
+                    JOIN caseparticipant cp ON cp.participantid = cpa.participantid
+                    WHERE cpa.caseid = c.caseid AND cp.userid = %s
+                )
+            """
+            params = [userid]
+        elif role == "Judge":
+            access_clause = """
+                AND EXISTS (
+                    SELECT 1 FROM judgeaccess ja
+                    JOIN judge j ON j.judgeid = ja.judgeid
+                    WHERE ja.caseid = c.caseid AND j.userid = %s
+                )
+            """
+            params = [userid]
+        elif role == "CourtRegistrar":
+            access_clause = """
+                AND EXISTS (
+                    SELECT 1 FROM courtaccess ca
+                    JOIN courtregistrar cr ON cr.courtid = ca.courtid
+                    WHERE ca.caseid = c.caseid AND cr.userid = %s
+                )
+            """
+            params = [userid]
+        # Admin: no access_clause, sees everything.
+
+        cur.execute(
+            f"""
             SELECT
                 e.evidenceid    AS id,
                 e.evidencetype  AS "evidenceType",
@@ -251,8 +242,10 @@ def get_all_evidence():
                 ) AS "lawyerName"
             FROM evidence e
             JOIN cases c ON c.caseid = e.caseid
+            WHERE 1=1 {access_clause}
             ORDER BY e.submitteddate DESC NULLS LAST
-            """
+            """,
+            params,
         )
         rows = cur.fetchall()
         result = []
@@ -299,7 +292,8 @@ def create_evidence_for_lawyer():
         cur.execute(
             """SELECT c.caseid FROM cases c JOIN caselawyeraccess cla ON cla.caseid=c.caseid
                JOIN lawyer l ON l.lawyerid=cla.lawyerid
-               WHERE l.userid=%s AND LOWER(c.title)=LOWER(%s) LIMIT 2""",
+               WHERE l.userid=%s AND LOWER(c.title)=LOWER(%s)
+                 AND LOWER(cla.status) = 'approved' LIMIT 2""",
             (current_user.userid, case_name),
         )
         rows = cur.fetchall()
@@ -387,7 +381,8 @@ def create_witness_for_lawyer():
         cur.execute(
             """SELECT c.caseid FROM cases c JOIN caselawyeraccess cla ON cla.caseid=c.caseid
                JOIN lawyer l ON l.lawyerid=cla.lawyerid
-               WHERE l.userid=%s AND LOWER(c.title)=LOWER(%s) LIMIT 2""",
+               WHERE l.userid=%s AND LOWER(c.title)=LOWER(%s)
+                 AND LOWER(cla.status) = 'approved' LIMIT 2""",
             (current_user.userid, data["casename"].strip()),
         )
         rows = cur.fetchall()

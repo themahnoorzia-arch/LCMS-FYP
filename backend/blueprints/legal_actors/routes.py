@@ -71,64 +71,110 @@ def get_judges_for_court():
             conn.close()
 
 
-@legal_actors_bp.route('/judges', methods=['POST'])
+# ==========================================================
+# LIST JUDGES AVAILABLE TO ASSIGN (Registrar only)
+#
+# Judges are never created here — a judge only exists via normal signup
+# + OTP + Admin approval (same as everyone else). This just lists every
+# already-approved judge who isn't already linked to the registrar's own
+# court, so the registrar can link ("assign") one. A judge can legitimately
+# work at more than one court at a time (real-world judges do), so this
+# is additive, not exclusive — the list surfaces each judge's *other*
+# current court(s) for context, sorted so judges already near the
+# registrar's own court's location come first (best-effort text match on
+# the free-text location field, not a hard jurisdiction rule).
+# ==========================================================
+@legal_actors_bp.route('/judges/available', methods=['GET'])
 @login_required
-def create_judge():
+def list_available_judges():
     if current_user.role != 'CourtRegistrar':
         return jsonify({"message": "Court registrar access required"}), 403
-
-    data = request.get_json() or {}
-    full_name = " ".join((data.get('name') or '').split())
-    email = (data.get('email') or '').strip().lower()
-    password = data.get('password') or ''
-    position = (data.get('position') or '').strip()
-    specialization = (data.get('specialization') or '').strip()
-    appointment_date = data.get('appointmentDate')
-    experience = data.get('experience')
-    case_names = data.get('assignedCases') or []
-
-    if not all((full_name, email, password, position, specialization, appointment_date)) or experience in (None, ''):
-        return jsonify({"message": "All judge and account fields are required"}), 400
-    if len(password) < 8:
-        return jsonify({"message": "Password must be at least 8 characters"}), 400
-
-    name_parts = full_name.split(' ', 1)
-    first_name = name_parts[0]
-    last_name = name_parts[1] if len(name_parts) > 1 else ''
 
     conn = None
     try:
         conn = get_pg_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute("SELECT cr.courtid, c.location FROM courtregistrar cr JOIN court c ON c.courtid = cr.courtid WHERE cr.userid = %s", (current_user.userid,))
+        registrar = cur.fetchone()
+        if not registrar:
+            return jsonify({"message": "Registrar is not assigned to a court"}), 400
+        my_courtid = registrar['courtid']
+        my_location = (registrar['location'] or '').lower()
+
+        cur.execute(
+            """
+            SELECT j.judgeid, u.firstname, u.lastname, j.position, j.specialization, j.expyears,
+                   COALESCE(
+                       STRING_AGG(DISTINCT c.courtname || ' (' || c.location || ')', ', ')
+                       FILTER (WHERE c.courtid IS NOT NULL),
+                       ''
+                   ) AS current_courts,
+                   STRING_AGG(DISTINCT c.location, ', ') FILTER (WHERE c.courtid IS NOT NULL) AS current_locations
+            FROM judge j
+            JOIN users u ON u.userid = j.userid
+            LEFT JOIN judgeworksin jw ON jw.judgeid = j.judgeid
+            LEFT JOIN court c ON c.courtid = jw.courtid
+            WHERE u.role = 'Judge' AND u.approval_status = 'approved'
+              AND NOT EXISTS (
+                  SELECT 1 FROM judgeworksin jw2
+                  WHERE jw2.judgeid = j.judgeid AND jw2.courtid = %s
+              )
+            GROUP BY j.judgeid, u.firstname, u.lastname, j.position, j.specialization, j.expyears
+            ORDER BY u.firstname, u.lastname
+            """,
+            (my_courtid,),
+        )
+        judges = [dict(r) for r in cur.fetchall()]
+
+        # Best-effort "nearby first" sort — not a hard jurisdiction filter,
+        # since court.location is free text with no standardized city field.
+        def same_area(j):
+            locs = (j.get('current_locations') or '').lower()
+            return 0 if (my_location and my_location in locs) else 1
+
+        judges.sort(key=same_area)
+
+        return jsonify({"judges": judges}), 200
+    except Exception as exc:
+        return jsonify({"message": str(exc)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+# ==========================================================
+# ASSIGN AN EXISTING JUDGE TO MY COURT (Registrar only)
+# ==========================================================
+@legal_actors_bp.route('/judges/<int:judge_id>/assign', methods=['POST'])
+@login_required
+def assign_judge_to_court(judge_id):
+    if current_user.role != 'CourtRegistrar':
+        return jsonify({"message": "Court registrar access required"}), 403
+
+    data = request.get_json() or {}
+    case_names = data.get('assignedCases') or []
+
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
         cur.execute("SELECT courtid FROM courtregistrar WHERE userid = %s", (current_user.userid,))
         registrar = cur.fetchone()
         if not registrar or not registrar['courtid']:
             return jsonify({"message": "Registrar is not assigned to a court"}), 400
 
-        cur.execute("SELECT 1 FROM users WHERE LOWER(email) = LOWER(%s)", (email,))
-        if cur.fetchone():
-            return jsonify({"message": "A user with this email already exists"}), 409
+        cur.execute(
+            "SELECT 1 FROM judge j JOIN users u ON u.userid = j.userid "
+            "WHERE j.judgeid = %s AND u.role = 'Judge' AND u.approval_status = 'approved'",
+            (judge_id,),
+        )
+        if not cur.fetchone():
+            return jsonify({"message": "Judge not found or not yet approved"}), 404
 
         cur.execute(
-            """
-            INSERT INTO users (role, firstname, lastname, email, password)
-            VALUES ('Judge', %s, %s, %s, %s)
-            RETURNING userid
-            """,
-            (first_name, last_name, email, generate_password_hash(password)),
-        )
-        user_id = cur.fetchone()['userid']
-        cur.execute(
-            """
-            INSERT INTO judge (userid, position, appointmentdate, expyears, specialization)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING judgeid
-            """,
-            (user_id, position, appointment_date, int(experience), specialization),
-        )
-        judge_id = cur.fetchone()['judgeid']
-        cur.execute(
-            "INSERT INTO judgeworksin (judgeid, courtid) VALUES (%s, %s)",
+            "INSERT INTO judgeworksin (judgeid, courtid) VALUES (%s, %s) ON CONFLICT DO NOTHING",
             (judge_id, registrar['courtid']),
         )
 
@@ -148,11 +194,7 @@ def create_judge():
                 )
 
         conn.commit()
-        return jsonify({"message": "Judge created successfully", "judgeid": judge_id}), 201
-    except (TypeError, ValueError):
-        if conn:
-            conn.rollback()
-        return jsonify({"message": "Experience must be a valid number"}), 400
+        return jsonify({"message": "Judge assigned to your court"}), 201
     except Exception as exc:
         if conn:
             conn.rollback()
@@ -162,227 +204,134 @@ def create_judge():
             conn.close()
 
 
-@legal_actors_bp.route('/judge', methods=['PUT'])
+# ==========================================================
+# UPDATE A JUDGE'S CASE ASSIGNMENTS AT MY COURT (Registrar only)
+#
+# Only case assignments — never the judge's own name/position/
+# specialization/experience. Those belong to the judge's own profile
+# (PUT /api/judgeprofile), which they manage themselves.
+# ==========================================================
+@legal_actors_bp.route('/judges/<int:judge_id>/assignments', methods=['PUT'])
 @login_required
-def update_judge():
-
-    data = request.get_json()
-
-    if not data:
-        return jsonify(
-            success=False,
-            message="No data provided"
-        ), 400
-
+def update_judge_case_assignments(judge_id):
     if current_user.role != 'CourtRegistrar':
-        return jsonify(
-            success=False,
-            message="Court registrar access required"
-        ), 403
+        return jsonify(success=False, message="Court registrar access required"), 403
 
-    judge_id = data.get('id')
-    if judge_id:
-        full_name = " ".join((data.get('name') or '').split())
-        if not full_name:
-            return jsonify(success=False, message="Judge name is required"), 400
-
-        name_parts = full_name.split(' ', 1)
-        first_name = name_parts[0]
-        last_name = name_parts[1] if len(name_parts) > 1 else ''
-        assigned_cases = data.get('assignedCases') or []
-        conn = None
-        try:
-            conn = get_pg_connection()
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute(
-                "SELECT courtid FROM courtregistrar WHERE userid = %s",
-                (current_user.userid,),
-            )
-            registrar = cur.fetchone()
-            if not registrar or not registrar['courtid']:
-                return jsonify(success=False, message="Registrar is not assigned to a court"), 400
-
-            cur.execute(
-                """
-                SELECT j.userid FROM judge j
-                JOIN judgeworksin jw ON jw.judgeid = j.judgeid
-                WHERE j.judgeid = %s AND jw.courtid = %s
-                """,
-                (judge_id, registrar['courtid']),
-            )
-            judge_row = cur.fetchone()
-            if not judge_row:
-                return jsonify(success=False, message="Judge not found in your court"), 404
-
-            cur.execute(
-                "UPDATE users SET firstname = %s, lastname = %s WHERE userid = %s",
-                (first_name, last_name, judge_row['userid']),
-            )
-            cur.execute(
-                """
-                UPDATE judge
-                SET specialization = %s, appointmentdate = %s,
-                    expyears = %s, position = %s
-                WHERE judgeid = %s
-                """,
-                (
-                    data.get('specialization'),
-                    data.get('appointmentDate'),
-                    int(data.get('experience')),
-                    data.get('position'),
-                    judge_id,
-                ),
-            )
-
-            cur.execute(
-                """
-                DELETE FROM judgeaccess ja
-                USING courtaccess ca
-                WHERE ja.caseid = ca.caseid
-                  AND ja.judgeid = %s
-                  AND ca.courtid = %s
-                """,
-                (judge_id, registrar['courtid']),
-            )
-            if assigned_cases:
-                cur.execute(
-                    """
-                    SELECT c.caseid FROM cases c
-                    JOIN courtaccess ca ON ca.caseid = c.caseid
-                    WHERE ca.courtid = %s AND c.title = ANY(%s)
-                    """,
-                    (registrar['courtid'], assigned_cases),
-                )
-                for case_row in cur.fetchall():
-                    cur.execute(
-                        "INSERT INTO judgeaccess (caseid, judgeid) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-                        (case_row['caseid'], judge_id),
-                    )
-
-            conn.commit()
-            return jsonify(success=True, message="Judge and case assignments updated successfully"), 200
-        except (TypeError, ValueError):
-            if conn:
-                conn.rollback()
-            return jsonify(success=False, message="Experience must be a valid number"), 400
-        except Exception as exc:
-            if conn:
-                conn.rollback()
-            return jsonify(success=False, message=str(exc)), 500
-        finally:
-            if conn:
-                conn.close()
-
-    full_name = data.get("name", "").strip()
-
-    if not full_name:
-        return jsonify(
-            success=False,
-            message="Judge name is required"
-        ), 400
-
-    parts = full_name.split()
-
-    firstname = parts[0]
-    lastname = " ".join(parts[1:])
+    data = request.get_json() or {}
+    assigned_cases = data.get('assignedCases') or []
 
     conn = None
-
     try:
-
         conn = get_pg_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        cur = conn.cursor(
-            cursor_factory=psycopg2.extras.DictCursor
+        cur.execute("SELECT courtid FROM courtregistrar WHERE userid = %s", (current_user.userid,))
+        registrar = cur.fetchone()
+        if not registrar or not registrar['courtid']:
+            return jsonify(success=False, message="Registrar is not assigned to a court"), 400
+
+        cur.execute(
+            "SELECT 1 FROM judgeworksin WHERE judgeid = %s AND courtid = %s",
+            (judge_id, registrar['courtid']),
         )
+        if not cur.fetchone():
+            return jsonify(success=False, message="Judge not found in your court"), 404
 
         cur.execute(
             """
-            SELECT userid
-            FROM users
-            WHERE firstname=%s
-            AND lastname=%s
+            DELETE FROM judgeaccess ja
+            USING courtaccess ca
+            WHERE ja.caseid = ca.caseid
+              AND ja.judgeid = %s
+              AND ca.courtid = %s
             """,
-            (firstname, lastname)
+            (judge_id, registrar['courtid']),
         )
-
-        user_row = cur.fetchone()
-
-        if not user_row:
-            return jsonify(
-                success=False,
-                message="Judge not found"
-            ), 404
-
-        userid = user_row["userid"]
-
-        cur.execute(
-            """
-            SELECT *
-            FROM judge
-            WHERE userid=%s
-            """,
-            (userid,)
-        )
-
-        judge = cur.fetchone()
-
-        if not judge:
-            return jsonify(
-                success=False,
-                message="Judge profile not found"
-            ), 404
-
-        cur.execute(
-            """
-            UPDATE judge
-            SET
-                specialization=%s,
-                appointmentdate=%s,
-                expyears=%s,
-                position=%s
-            WHERE userid=%s
-            """,
-            (
-                data.get(
-                    "specialization",
-                    judge["specialization"]
-                ),
-                data.get(
-                    "appointmentDate",
-                    judge["appointmentdate"]
-                ),
-                data.get(
-                    "experience",
-                    judge["expyears"]
-                ),
-                data.get(
-                    "position",
-                    judge["position"]
-                ),
-                userid
+        if assigned_cases:
+            cur.execute(
+                """
+                SELECT c.caseid FROM cases c
+                JOIN courtaccess ca ON ca.caseid = c.caseid
+                WHERE ca.courtid = %s AND c.title = ANY(%s)
+                """,
+                (registrar['courtid'], assigned_cases),
             )
-        )
+            for case_row in cur.fetchall():
+                cur.execute(
+                    "INSERT INTO judgeaccess (caseid, judgeid) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                    (case_row['caseid'], judge_id),
+                )
 
         conn.commit()
-
-        return jsonify(
-            success=True,
-            message="Profile updated successfully"
-        )
-
-    except Exception as e:
-
+        return jsonify(success=True, message="Case assignments updated successfully"), 200
+    except Exception as exc:
         if conn:
             conn.rollback()
-
-        return jsonify(
-            success=False,
-            message=str(e)
-        ), 500
-
+        return jsonify(success=False, message=str(exc)), 500
     finally:
+        if conn:
+            conn.close()
 
+
+# ==========================================================
+# REMOVE A JUDGE FROM MY COURT (Registrar only)
+#
+# A judge with open/in-progress cases at this court can't just be pulled
+# off it — that would silently leave those cases with no judge. Block the
+# removal and make the registrar reassign those cases to another judge
+# first. Closed cases are historical record and don't block removal, and
+# their judgeaccess rows are left untouched (who presided over a closed
+# case shouldn't change just because the judge later leaves the court).
+# ==========================================================
+@legal_actors_bp.route('/judges/<int:judge_id>/court', methods=['DELETE'])
+@login_required
+def remove_judge_from_court(judge_id):
+    if current_user.role != 'CourtRegistrar':
+        return jsonify(success=False, message="Court registrar access required"), 403
+
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute("SELECT courtid FROM courtregistrar WHERE userid = %s", (current_user.userid,))
+        registrar = cur.fetchone()
+        if not registrar or not registrar['courtid']:
+            return jsonify(success=False, message="Registrar is not assigned to a court"), 400
+
+        cur.execute(
+            """
+            SELECT c.title FROM judgeaccess ja
+            JOIN courtaccess ca ON ca.caseid = ja.caseid
+            JOIN cases c ON c.caseid = ja.caseid
+            WHERE ja.judgeid = %s AND ca.courtid = %s AND LOWER(c.status) != 'closed'
+            """,
+            (judge_id, registrar['courtid']),
+        )
+        active_cases = [row['title'] for row in cur.fetchall()]
+        if active_cases:
+            return jsonify(
+                success=False,
+                message=(
+                    f"This judge still has {len(active_cases)} active case(s) at your court "
+                    f"({', '.join(active_cases)}) — reassign them to another judge before removing."
+                ),
+            ), 409
+
+        cur.execute(
+            "DELETE FROM judgeworksin WHERE judgeid = %s AND courtid = %s RETURNING judgeid",
+            (judge_id, registrar['courtid']),
+        )
+        if not cur.fetchone():
+            return jsonify(success=False, message="Judge not found in your court"), 404
+
+        conn.commit()
+        return jsonify(success=True, message="Judge removed from your court"), 200
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+        return jsonify(success=False, message=str(exc)), 500
+    finally:
         if conn:
             conn.close()
 
@@ -524,7 +473,9 @@ def get_prosecutors():
                 """
                 SELECT *
                 FROM prosecutor
-                """
+                WHERE courtid = %s
+                """,
+                (court_id,)
             )
 
             prosecutors = cur.fetchall()
@@ -627,20 +578,31 @@ def create_prosecutor():
         )
 
         cur.execute(
+            "SELECT courtid FROM courtregistrar WHERE userid = %s",
+            (current_user.userid,),
+        )
+        reg_row = cur.fetchone()
+        if not reg_row or not reg_row["courtid"]:
+            return jsonify({"error": "Registrar profile or court not found"}), 404
+        court_id = reg_row["courtid"]
+
+        cur.execute(
             """
             INSERT INTO prosecutor
             (
                 name,
                 experience,
-                status
+                status,
+                courtid
             )
-            VALUES (%s,%s,%s)
+            VALUES (%s,%s,%s,%s)
             RETURNING prosecutorid
             """,
             (
                 name,
                 experience,
-                status
+                status,
+                court_id,
             )
         )
 
@@ -757,6 +719,17 @@ def update_prosecutor():
         cur = conn.cursor(
             cursor_factory=psycopg2.extras.RealDictCursor
         )
+
+        cur.execute(
+            """
+            SELECT p.prosecutorid FROM prosecutor p
+            JOIN courtregistrar cr ON cr.courtid = p.courtid
+            WHERE p.prosecutorid = %s AND cr.userid = %s
+            """,
+            (prosecutor_id, current_user.userid),
+        )
+        if not cur.fetchone():
+            return jsonify({"error": "Prosecutor not found in your court"}), 404
 
         cur.execute(
             """
@@ -878,6 +851,17 @@ def delete_prosecutor(prosecutor_id):
         conn = get_pg_connection()
 
         cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT 1 FROM prosecutor p
+            JOIN courtregistrar cr ON cr.courtid = p.courtid
+            WHERE p.prosecutorid = %s AND cr.userid = %s
+            """,
+            (prosecutor_id, current_user.userid),
+        )
+        if not cur.fetchone():
+            return jsonify({"error": "Prosecutor not found in your court"}), 404
 
         cur.execute(
             """

@@ -5,12 +5,76 @@ from werkzeug.utils import secure_filename
 
 from blueprints.users import users_bp
 from db.db import SessionLocal
-from models import Lawyer
+from models import Lawyer, Users
 from models import Courtregistrar, Court, Caseparticipant, Judge, Judge
 from db.db import get_pg_connection
 import psycopg2
 import psycopg2.extras
+from utils.validators import (
+    normalize_digits,
+    is_valid_cnic,
+    is_valid_pk_phone,
+    is_valid_email,
+    is_adult_dob,
+)
 
+
+def _apply_identity_field_updates(db, user, data):
+    """Update the identity fields shared by every role (name/email/phone/
+    CNIC/DOB) on a Users row, enforcing the exact same format and
+    uniqueness rules as signup — editing a profile can't be used to sneak
+    in a value signup would have rejected. Returns an error message string
+    on failure, or None on success. Only touches fields actually present
+    in `data`; omitted fields are left as-is."""
+
+    if data.get("firstName") or data.get("firstname"):
+        user.firstname = (data.get("firstName") or data.get("firstname")).strip()
+
+    if data.get("lastName") or data.get("lastname"):
+        user.lastname = (data.get("lastName") or data.get("lastname")).strip()
+
+    email = data.get("email")
+    if email:
+        email = email.strip()
+        if not is_valid_email(email):
+            return "Please enter a valid email address."
+        existing = (
+            db.query(Users)
+            .filter(Users.email == email, Users.userid != user.userid)
+            .first()
+        )
+        if existing:
+            return "An account with this email already exists."
+        user.email = email
+
+    phone = data.get("phone") or data.get("phoneno")
+    if phone:
+        phone_digits = normalize_digits(phone)
+        if not is_valid_pk_phone(phone_digits):
+            return "Phone number must be a valid 11-digit Pakistani mobile number (e.g. 03XXXXXXXXX)."
+        user.phoneno = phone_digits
+
+    cnic = data.get("cnic")
+    if cnic:
+        cnic_digits = normalize_digits(cnic)
+        if not is_valid_cnic(cnic_digits):
+            return "CNIC must be exactly 13 digits (e.g. 12345-1234567-1)."
+        existing = (
+            db.query(Users)
+            .filter(Users.cnic == cnic_digits, Users.role == user.role, Users.userid != user.userid)
+            .first()
+        )
+        if existing:
+            return "An account with this CNIC already exists for this role."
+        user.cnic = cnic_digits
+
+    dob = data.get("dob")
+    if dob:
+        if not is_adult_dob(dob):
+            return "You must be at least 18 years old, and the date of birth cannot be in the future."
+        user.dob = dob
+
+    return None
 
 
 # ---------------------------------------------------
@@ -82,17 +146,36 @@ def update_lawyer_profile():
                 message="Profile not found"
             ), 404
 
-        data = request.get_json()
+        data = request.get_json() or {}
+
+        # current_user is always a detached object (its loading session in
+        # extensions.py's load_user() is closed immediately) — mutating it
+        # directly and committing a different session silently persists
+        # nothing. Re-fetch a row actually attached to this session first.
+        user_row = db.query(Users).get(current_user.userid)
+        err = _apply_identity_field_updates(db, user_row, data)
+        if err:
+            return jsonify(success=False, message=err), 409
 
         lawyer.specialization = data.get(
             "specialization",
             lawyer.specialization,
         )
 
-        lawyer.barlicenseno = data.get(
-            "barLicense",
-            lawyer.barlicenseno,
-        )
+        new_bar_license = data.get("barLicense")
+        if new_bar_license is not None and str(new_bar_license) != str(lawyer.barlicenseno):
+            try:
+                new_bar_license = int(str(new_bar_license).strip())
+            except (TypeError, ValueError):
+                return jsonify(success=False, message="Bar license must be a valid number."), 400
+            existing = (
+                db.query(Lawyer)
+                .filter(Lawyer.barlicenseno == new_bar_license, Lawyer.lawyerid != lawyer.lawyerid)
+                .first()
+            )
+            if existing:
+                return jsonify(success=False, message="This bar license number is already registered to another account."), 409
+            lawyer.barlicenseno = new_bar_license
 
         lawyer.experienceyears = data.get(
             "experience",
@@ -195,7 +278,16 @@ def update_registrar_profile():
                 message="Profile not found"
             ), 404
 
-        data = request.get_json()
+        data = request.get_json() or {}
+
+        # current_user is always a detached object (its loading session in
+        # extensions.py's load_user() is closed immediately) — mutating it
+        # directly and committing a different session silently persists
+        # nothing. Re-fetch a row actually attached to this session first.
+        user_row = db.query(Users).get(current_user.userid)
+        err = _apply_identity_field_updates(db, user_row, data)
+        if err:
+            return jsonify(success=False, message=err), 409
 
         registrar.position = data.get(
             "position",
@@ -279,7 +371,16 @@ def update_client_profile():
                 message="Profile not found"
             ), 404
 
-        data = request.get_json()
+        data = request.get_json() or {}
+
+        # current_user is always a detached object (its loading session in
+        # extensions.py's load_user() is closed immediately) — mutating it
+        # directly and committing a different session silently persists
+        # nothing. Re-fetch a row actually attached to this session first.
+        user_row = db.query(Users).get(current_user.userid)
+        err = _apply_identity_field_updates(db, user_row, data)
+        if err:
+            return jsonify(success=False, message=err), 409
 
         client.address = data.get(
             "address",
@@ -374,49 +475,6 @@ def get_logs():
             conn.close()
 
 
-@users_bp.route("/api/logs/activity", methods=["GET"])
-@login_required
-def get_dashboard_activity_logs():
-    conn = None
-    try:
-        conn = get_pg_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-
-        cur.execute("""
-            SELECT
-                l.description,
-                l.entitytype,
-                l.actiontimestamp
-            FROM logtable l
-            WHERE l.entitytype IN (
-                'case', 'prosecutor', 'casehistory',
-                'finaldecision', 'lawyer', 'judge'
-            )
-            ORDER BY l.actiontimestamp DESC
-            LIMIT 7
-        """)
-        rows = cur.fetchall()
-
-        activity_logs = [
-            {
-                "activity": row["description"],
-                "type": row["entitytype"],
-                "timestamp": row["actiontimestamp"].strftime("%Y-%m-%d %I:%M %p"),
-            }
-            for row in rows
-        ]
-
-        cur.close()
-        return jsonify(activity_logs), 200
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-    finally:
-        if conn:
-            conn.close()
-
-
 @users_bp.route("/api/judgeprofile", methods=["PUT"])
 @login_required
 def update_judge_profile():
@@ -430,18 +488,14 @@ def update_judge_profile():
         if not judge:
             return jsonify(success=False, message="Judge profile not found"), 404
 
-        if data.get("firstName"):
-            current_user.firstname = data.get("firstName")
-        if data.get("lastName"):
-            current_user.lastname = data.get("lastName")
-        if data.get("email"):
-            current_user.email = data.get("email")
-        if data.get("phone"):
-            current_user.phoneno = data.get("phone")
-        if data.get("cnic"):
-            current_user.cnic = data.get("cnic")
-        if data.get("dob"):
-            current_user.dob = data.get("dob")
+        # current_user is always a detached object (its loading session in
+        # extensions.py's load_user() is closed immediately) — mutating it
+        # directly and committing a different session silently persists
+        # nothing. Re-fetch a row actually attached to this session first.
+        user_row = db.query(Users).get(current_user.userid)
+        err = _apply_identity_field_updates(db, user_row, data)
+        if err:
+            return jsonify(success=False, message=err), 409
         if data.get("position") is not None:
             judge.position = data.get("position")
         if data.get("specialization") is not None:

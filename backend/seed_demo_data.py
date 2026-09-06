@@ -385,45 +385,6 @@ def run():
             {"c": case_family, "w": witnesses[1], "s": "Neighbor testimony regarding child living conditions", "d": date(2024, 9, 1)},
         )
 
-        # ── Remands (criminal case) ────────────────────────────
-        remand_exists = db.execute(text("SELECT 1 FROM remands WHERE caseid=:c LIMIT 1"), {"c": case_criminal}).fetchone()
-        if not remand_exists:
-            db.execute(
-                text(
-                    """
-                    INSERT INTO remands (caseid, remandid, startdate, enddate, remandtype, remandreason, status)
-                    VALUES (:c, 1, :sd, :ed, 'Police', 'Further investigation required', 'Completed')
-                    """
-                ),
-                {"c": case_criminal, "sd": date(2024, 6, 2), "ed": date(2024, 6, 9)},
-            )
-
-        # ── Surety + Bail ──────────────────────────────────────
-        surety_row = db.execute(text("SELECT suretyid FROM surety WHERE cnic='3520255555555' LIMIT 1")).fetchone()
-        if not surety_row:
-            surety_id = db.execute(
-                text(
-                    "INSERT INTO surety (cnic, phone, firstname, lastname, email, address, pasthistory) "
-                    "VALUES ('3520255555555', '03009999999', 'Kamran', 'Butt', 'kamran@surety.com', "
-                    "'DHA Phase 5, Lahore', 'No prior defaults') RETURNING suretyid"
-                )
-            ).fetchone()[0]
-        else:
-            surety_id = surety_row[0]
-
-        bail_exists = db.execute(text("SELECT 1 FROM bail WHERE caseid=:c LIMIT 1"), {"c": case_criminal}).fetchone()
-        if not bail_exists:
-            db.execute(
-                text(
-                    """
-                    INSERT INTO bail (caseid, bailid, suretyid, bailstatus, bailamount, baildate, remarks, bailcondition)
-                    VALUES (:c, 1, :s, 'Granted', 200000, :bd, 'Bail granted with surety',
-                            'Accused shall not leave district without permission')
-                    """
-                ),
-                {"c": case_criminal, "s": surety_id, "bd": date(2024, 6, 12)},
-            )
-
         # ── Payments ───────────────────────────────────────────
         payments = [
             (case_criminal, lawyer_ahmed, "Court Fee", "Filing fee for criminal case", Decimal("5000"), "Paid", "Cash"),
@@ -451,20 +412,6 @@ def run():
                 },
             )
 
-        # ── Appeals ──────────────────────────────────────────────
-        appeal_exists = db.execute(text("SELECT 1 FROM appeals WHERE caseid=:c LIMIT 1"), {"c": case_corporate}).fetchone()
-        if not appeal_exists:
-            next_aid = db.execute(text("SELECT COALESCE(MAX(appealid), 0) + 1 FROM appeals")).fetchone()[0]
-            db.execute(
-                text(
-                    """
-                    INSERT INTO appeals (caseid, appealid, appealdate, appealstatus, decisiondate, decision)
-                    VALUES (:c, :a, :ad, :st, NULL, NULL)
-                    """
-                ),
-                {"c": case_corporate, "a": next_aid, "ad": date(2025, 3, 1), "st": "Pending"},
-            )
-
         db.commit()
 
         print("=" * 60)
@@ -474,9 +421,9 @@ def run():
         print("\nHow things connect:")
         print("  Criminal case  - Ahmed Khan (defense) + Omar Hassan (pending join)")
         print("                   - Ali Raza (client), Prosecutor Asad Mehmood")
-        print("                   - Bail, remand, evidence, witnesses")
+        print("                   - Evidence, witnesses")
         print("  Family case    - Sara Malik (lawyer), Zaina Zia (client), PENDING verify")
-        print("  Corporate case - Omar Hassan vs Ahmed Khan, appeal pending")
+        print("  Corporate case - Omar Hassan vs Ahmed Khan")
         print("\nLogin accounts:")
         for label, email in [
             ("Client (Zaina)", "client@gmail.com"),

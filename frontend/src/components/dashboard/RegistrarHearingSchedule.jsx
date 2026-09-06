@@ -133,7 +133,9 @@ const RegistrarHearingSchedule = () => {
                 </tr>
               </thead>
               <tbody>
-                {hearings.map((hearing) => (
+                {hearings.length === 0 ? (
+                  <tr><td colSpan={11} className="text-center text-muted py-4">No hearings found.</td></tr>
+                ) : hearings.map((hearing) => (
                   <tr key={hearing.hearingid}>
                     <td>{hearing.hearingnumber || hearing.hearingid}</td>
                     <td>{hearing.casename || 'N/A'}</td>

@@ -20,12 +20,21 @@ from blueprints.registrar_routes import registrar_bp
 from blueprints.notifications import notifications_bp
 
 
+_DIST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "dist")
+
+
 def create_app():
 
+    # static_folder=None disables Flask's own automatic static-file route.
+    # That route used to auto-register at the same "/<path:filename>"
+    # pattern as our own catch-all below (because static_url_path was ""),
+    # and since it's registered first, it always won — silently 404ing on
+    # any client-side route (e.g. a hard refresh on /login) before our
+    # code serving index.html as a fallback ever ran. We serve static files
+    # ourselves in serve_spa() below instead.
     app = Flask(
         __name__,
-        static_folder="../frontend/dist",
-        static_url_path=""
+        static_folder=None,
     )
 
     app.config.from_object(Config)
@@ -64,11 +73,20 @@ def create_app():
     @app.route("/")
     def serve():
         return send_from_directory(
-            app.static_folder,
+            _DIST_DIR,
             "index.html"
         )
 
-
+    @app.route("/<path:path>")
+    def serve_spa(path):
+        # A real built asset (JS/CSS/image) gets served as-is; anything
+        # else is a client-side React Router path (e.g. /login,
+        # /AdminDashboard) reached via a hard navigation or page refresh —
+        # hand back index.html so React Router can take over.
+        full_path = os.path.join(_DIST_DIR, path)
+        if os.path.isfile(full_path):
+            return send_from_directory(_DIST_DIR, path)
+        return send_from_directory(_DIST_DIR, "index.html")
 
     return app
 app = create_app()

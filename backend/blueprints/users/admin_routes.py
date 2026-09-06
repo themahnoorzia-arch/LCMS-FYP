@@ -47,12 +47,6 @@ def admin_stats():
         cur.execute("SELECT COUNT(*) AS total FROM hearings")
         total_hearings = cur.fetchone()["total"]
 
-        cur.execute("SELECT COUNT(*) AS total FROM appeals")
-        total_appeals = cur.fetchone()["total"]
-
-        cur.execute("SELECT COUNT(*) AS total FROM appeals WHERE appealstatus = 'Pending'")
-        pending_appeals = cur.fetchone()["total"]
-
         return jsonify({
             "cases": {
                 "total": total_cases,
@@ -65,7 +59,6 @@ def admin_stats():
                 "by_role": users_by_role,
             },
             "hearings": {"total": total_hearings},
-            "appeals": {"total": total_appeals, "pending": pending_appeals},
         }), 200
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -151,6 +144,270 @@ def admin_delete_user(user_id):
             "user",
         )
         return jsonify({"message": "User deleted"}), 200
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+        return jsonify({"error": str(exc)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@users_bp.route("/api/admin/pending-approvals", methods=["GET"])
+@login_required
+def admin_list_pending_approvals():
+    err = _require_admin()
+    if err:
+        return err
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """
+            SELECT userid, firstname, lastname, email, phoneno, cnic, role, createdat
+            FROM users
+            WHERE approval_status = 'pending' AND role IN ('Judge', 'CourtRegistrar')
+            ORDER BY createdat ASC NULLS LAST, userid ASC
+            """
+        )
+        rows = cur.fetchall()
+        result = [{
+            "userid": r["userid"],
+            "name": f"{r['firstname'] or ''} {r['lastname'] or ''}".strip(),
+            "email": r["email"],
+            "phone": r["phoneno"],
+            "cnic": r["cnic"],
+            "role": r["role"],
+            "requestedAt": r["createdat"].isoformat() if r["createdat"] else None,
+        } for r in rows]
+        return jsonify({"pending": result}), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@users_bp.route("/api/admin/courts", methods=["GET"])
+@login_required
+def admin_list_courts():
+    """Full court list for the Manage Courts page — every court, plus
+    whichever registrar (if any) currently runs it."""
+    err = _require_admin()
+    if err:
+        return err
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """
+            SELECT c.courtid, c.courtname, c.type, c.location,
+                   TRIM(COALESCE(u.firstname, '') || ' ' || COALESCE(u.lastname, '')) AS registrarname
+            FROM court c
+            LEFT JOIN courtregistrar cr ON cr.courtid = c.courtid
+            LEFT JOIN users u ON u.userid = cr.userid
+            ORDER BY c.courtname
+            """
+        )
+        rows = cur.fetchall()
+        result = [{
+            "id": r["courtid"],
+            "courtname": r["courtname"],
+            "type": r["type"],
+            "location": r["location"],
+            "registrarName": r["registrarname"] or None,
+        } for r in rows]
+        return jsonify({"courts": result}), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@users_bp.route("/api/admin/courts/<int:court_id>", methods=["DELETE"])
+@login_required
+def admin_delete_court(court_id):
+    err = _require_admin()
+    if err:
+        return err
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT 1 FROM courtregistrar WHERE courtid = %s", (court_id,))
+        if cur.fetchone():
+            return jsonify({"error": "This court has a registrar assigned — unassign it first."}), 409
+
+        cur.execute("DELETE FROM court WHERE courtid = %s RETURNING courtname", (court_id,))
+        deleted = cur.fetchone()
+        if not deleted:
+            return jsonify({"error": "Court not found"}), 404
+        conn.commit()
+
+        from utils.logging import write_log
+        write_log("DELETE", f"Admin deleted court: {deleted['courtname']}", "court")
+        return jsonify({"message": "Court deleted"}), 200
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+        return jsonify({"error": str(exc)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@users_bp.route("/api/admin/unclaimed-courts", methods=["GET"])
+@login_required
+def admin_list_unclaimed_courts():
+    """Courts with no registrar assigned yet — for the court-assignment
+    step of approving a CourtRegistrar applicant. One court, one registrar:
+    a court already claimed by a registrar never shows up here."""
+    err = _require_admin()
+    if err:
+        return err
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """
+            SELECT c.courtid, c.courtname, c.type, c.location
+            FROM court c
+            WHERE NOT EXISTS (
+                SELECT 1 FROM courtregistrar cr WHERE cr.courtid = c.courtid
+            )
+            ORDER BY c.courtname
+            """
+        )
+        rows = cur.fetchall()
+        result = [{
+            "id": r["courtid"],
+            "courtname": r["courtname"],
+            "type": r["type"],
+            "location": r["location"],
+        } for r in rows]
+        return jsonify({"courts": result}), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@users_bp.route("/api/admin/users/<int:user_id>/approve", methods=["POST"])
+@login_required
+def admin_approve_user(user_id):
+    err = _require_admin()
+    if err:
+        return err
+
+    data = request.get_json(silent=True) or {}
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute(
+            "SELECT userid, firstname, lastname, role FROM users "
+            "WHERE userid = %s AND approval_status = 'pending' "
+            "AND role IN ('Judge', 'CourtRegistrar')",
+            (user_id,),
+        )
+        applicant = cur.fetchone()
+        if not applicant:
+            return jsonify({"error": "Pending account not found"}), 404
+
+        # A CourtRegistrar can't be approved without also being assigned to
+        # a court — courts are managed separately (Manage Courts), never
+        # created here. Courts aren't relevant for Judge approvals, so this
+        # whole block is skipped for them.
+        if applicant["role"] == "CourtRegistrar":
+            court_id = data.get("courtid")
+
+            if not court_id:
+                return jsonify({
+                    "error": "Assign this registrar to an existing unclaimed court."
+                }), 400
+
+            cur.execute(
+                """
+                SELECT c.courtid FROM court c
+                WHERE c.courtid = %s
+                  AND NOT EXISTS (SELECT 1 FROM courtregistrar cr WHERE cr.courtid = c.courtid)
+                """,
+                (court_id,),
+            )
+            if not cur.fetchone():
+                return jsonify({"error": "That court doesn't exist or already has a registrar assigned."}), 409
+
+            cur.execute(
+                "UPDATE courtregistrar SET courtid = %s WHERE userid = %s",
+                (court_id, user_id),
+            )
+
+        cur.execute(
+            "UPDATE users SET approval_status = 'approved' WHERE userid = %s",
+            (user_id,),
+        )
+        conn.commit()
+
+        from utils.logging import write_log
+        write_log(
+            "UPDATE",
+            f"Admin approved {applicant['role']} account: {applicant['firstname']} {applicant['lastname']}",
+            "user",
+        )
+        try:
+            from utils.notifications import push_notification
+            push_notification(
+                user_id, "Account Approved",
+                "Your account has been approved by an administrator. You can now log in.",
+                "success", None,
+            )
+        except Exception:
+            pass
+
+        return jsonify({"message": "User approved"}), 200
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+        return jsonify({"error": str(exc)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@users_bp.route("/api/admin/users/<int:user_id>/reject", methods=["POST"])
+@login_required
+def admin_reject_user(user_id):
+    err = _require_admin()
+    if err:
+        return err
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            "UPDATE users SET approval_status = 'rejected' "
+            "WHERE userid = %s AND role IN ('Judge', 'CourtRegistrar') "
+            "RETURNING firstname, lastname, role",
+            (user_id,),
+        )
+        updated = cur.fetchone()
+        if not updated:
+            return jsonify({"error": "Pending account not found"}), 404
+        conn.commit()
+
+        from utils.logging import write_log
+        write_log(
+            "UPDATE",
+            f"Admin rejected {updated['role']} account: {updated['firstname']} {updated['lastname']}",
+            "user",
+        )
+        return jsonify({"message": "User rejected"}), 200
     except Exception as exc:
         if conn:
             conn.rollback()
@@ -247,133 +504,6 @@ def admin_list_cases():
             "client":     r["clientname"] or "—",
         } for r in rows]
         return jsonify({"cases": result}), 200
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-    finally:
-        if conn:
-            conn.close()
-
-
-# ── Activity feed (real data, no logtable dependency) ───────────────────────
-
-@users_bp.route("/api/admin/activity", methods=["GET"])
-@login_required
-def admin_activity():
-    err = _require_admin()
-    if err:
-        return err
-    conn = None
-    try:
-        conn = get_pg_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        events = []
-
-        # Recent case registrations
-        cur.execute(
-            """
-            SELECT c.caseid, c.title, c.casetype, c.filingdate, c.status,
-                   TRIM(u.firstname||' '||u.lastname) AS clientname
-            FROM cases c
-            LEFT JOIN caseparticipantaccess cpa ON cpa.caseid = c.caseid
-            LEFT JOIN caseparticipant cp ON cp.participantid = cpa.participantid
-            LEFT JOIN users u ON u.userid = cp.userid
-            ORDER BY c.filingdate DESC NULLS LAST, c.caseid DESC
-            LIMIT 20
-            """
-        )
-        for r in cur.fetchall():
-            events.append({
-                "type": "case_filed",
-                "label": "Case Filed",
-                "description": f"New {r['casetype'] or ''} case registered: {r['title']}",
-                "date": r["filingdate"].isoformat() if r["filingdate"] else None,
-                "entity": "case",
-                "status": r["status"],
-            })
-
-        # Recent hearings
-        cur.execute(
-            """
-            SELECT h.hearingdate, h.hearingstatus, c.title AS casetitle
-            FROM hearings h
-            JOIN cases c ON c.caseid = h.caseid
-            ORDER BY h.hearingdate DESC NULLS LAST
-            LIMIT 15
-            """
-        )
-        for r in cur.fetchall():
-            events.append({
-                "type": "hearing",
-                "label": "Hearing",
-                "description": f"Hearing for '{r['casetitle']}' — {r['hearingstatus'] or 'scheduled'}",
-                "date": r["hearingdate"].isoformat() if r["hearingdate"] else None,
-                "entity": "hearing",
-                "status": r["hearingstatus"] or "scheduled",
-            })
-
-        # Recent appeals
-        cur.execute(
-            """
-            SELECT a.appealdate, a.appealstatus, a.decision, c.title AS casetitle
-            FROM appeals a
-            JOIN cases c ON c.caseid = a.caseid
-            ORDER BY a.appealdate DESC NULLS LAST
-            LIMIT 10
-            """
-        )
-        for r in cur.fetchall():
-            events.append({
-                "type": "appeal",
-                "label": "Appeal",
-                "description": f"Appeal filed for '{r['casetitle']}'" + (f" — {r['decision']}" if r["decision"] else ""),
-                "date": r["appealdate"].isoformat() if r["appealdate"] else None,
-                "entity": "appeal",
-                "status": r["appealstatus"] or "Pending",
-            })
-
-        # Recent final decisions
-        cur.execute(
-            """
-            SELECT fd.decisiondate, fd.verdict, c.title AS casetitle
-            FROM finaldecision fd
-            JOIN cases c ON c.caseid = fd.caseid
-            ORDER BY fd.decisiondate DESC NULLS LAST
-            LIMIT 10
-            """
-        )
-        for r in cur.fetchall():
-            events.append({
-                "type": "decision",
-                "label": "Final Decision",
-                "description": f"Case '{r['casetitle']}' closed — verdict: {r['verdict']}",
-                "date": r["decisiondate"].isoformat() if r["decisiondate"] else None,
-                "entity": "decision",
-                "status": "Closed",
-            })
-
-        # Recent user registrations
-        cur.execute(
-            """
-            SELECT userid, TRIM(firstname||' '||lastname) AS name, role, createdat
-            FROM users
-            ORDER BY createdat DESC NULLS LAST
-            LIMIT 10
-            """
-        )
-        for r in cur.fetchall():
-            events.append({
-                "type": "user_registered",
-                "label": "User Registered",
-                "description": f"New {r['role']} account: {r['name']}",
-                "date": r["createdat"].isoformat() if r["createdat"] else None,
-                "entity": "user",
-                "status": "Success",
-            })
-
-        # Sort all events by date descending
-        events.sort(key=lambda e: e["date"] or "0000-00-00", reverse=True)
-        return jsonify({"activity": events[:60]}), 200
-
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
     finally:

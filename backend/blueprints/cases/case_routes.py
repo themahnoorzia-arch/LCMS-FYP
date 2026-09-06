@@ -19,7 +19,6 @@ from models import (
     Caseparticipant,
     Prosecutor,
     Payments,
-    Remands,
     Evidence,
     Witnesses,
     Witnesscase,
@@ -32,6 +31,39 @@ from models import (
     t_judgeaccess,
     t_prosecutorassign,
 )
+
+
+def _registrar_owns_case(db, userid, case_id):
+    """True if this registrar's court is assigned to this case."""
+    registrar = db.query(Courtregistrar).filter_by(userid=userid).first()
+    if not registrar or not registrar.courtid:
+        return False
+    return (
+        db.query(t_courtaccess)
+        .filter(
+            t_courtaccess.c.caseid == case_id,
+            t_courtaccess.c.courtid == registrar.courtid,
+        )
+        .first()
+        is not None
+    )
+
+
+def _lawyer_on_case(db, userid, case_id):
+    """True if this lawyer has an approved link to this case."""
+    lawyer = db.query(Lawyer).filter_by(userid=userid).first()
+    if not lawyer:
+        return False
+    return (
+        db.query(t_caselawyeraccess)
+        .filter(
+            t_caselawyeraccess.c.caseid == case_id,
+            t_caselawyeraccess.c.lawyerid == lawyer.lawyerid,
+            t_caselawyeraccess.c.status == "approved",
+        )
+        .first()
+        is not None
+    )
 
 
 def _link_existing_participant(cur, participantid, caseid, lawyerid):
@@ -115,9 +147,6 @@ def _serialize_lawyer_case(db, case, lawyerid=None, access_status=None, access_s
             ),
         }
 
-    remand = db.query(Remands).filter_by(caseid=case.caseid).first()
-    remand_status = remand.status if remand else "N/A"
-
     client_name = "N/A"
     participant = None
     if lawyerid is not None:
@@ -168,7 +197,6 @@ def _serialize_lawyer_case(db, case, lawyerid=None, access_status=None, access_s
         "courtname": court_name_str,
         "judgeName": judge_name,
         "prosecutorName": prosecutor_name,
-        "remandstatus": remand_status,
         "myaccessstatus": (access_status or "approved").lower(),
         "myside": access_side,
         "decisionId": decision_data.get("decisionId", ""),
@@ -477,6 +505,18 @@ def join_case_request():
                 'case_id': caseid,
             }), 409
 
+        # The requested side must not already have an approved lawyer —
+        # once both sides are staffed there's nothing left to join.
+        cur.execute(
+            "SELECT 1 FROM caselawyeraccess "
+            "WHERE caseid = %s AND LOWER(side) = %s AND LOWER(COALESCE(status, 'approved')) = 'approved'",
+            (caseid, side),
+        )
+        if cur.fetchone():
+            return jsonify({
+                'message': f'This case already has an approved {side} lawyer.',
+            }), 409
+
         cur.execute(
             """
             INSERT INTO caselawyeraccess (caseid, lawyerid, side, is_lead, status)
@@ -583,6 +623,18 @@ def check_duplicate_case():
                 (row['caseid'],),
             )
             lawyers = [dict(lr) for lr in cur.fetchall()]
+
+            # A case already fully staffed — an approved lawyer on both the
+            # petitioner and respondent side — has no side left to join, so
+            # don't offer it as a result at all.
+            approved_sides = {
+                (lw.get('side') or '').strip().lower()
+                for lw in lawyers
+                if (lw.get('status') or 'approved').lower() == 'approved'
+            }
+            if 'petitioner' in approved_sides and 'respondent' in approved_sides:
+                continue
+
             matches.append({
                 'caseid': row['caseid'],
                 'title': row['title'],
@@ -599,66 +651,6 @@ def check_duplicate_case():
     finally:
         if conn:
             conn.close()
-
-
-@cases_bp.route('/casebyid', methods=['GET'])
-@login_required
-def get_cases_by_id():
-
-    db = SessionLocal()
-
-    try:
-
-        role = current_user.role.lower()
-        user_id = current_user.userid
-
-        query = db.query(Cases)
-
-        if role == "lawyer":
-            query = query.filter(
-                Cases.lawyerid == user_id
-            )
-
-        elif role == "judge":
-            query = query.filter(
-                Cases.judgeid == user_id
-            )
-
-        elif role == "client":
-            query = query.filter(
-                Cases.clientid == user_id
-            )
-
-        else:
-            return jsonify({
-                "message":
-                "Invalid role"
-            }), 400
-
-        cases = query.all()
-
-        result = []
-
-        for c in cases:
-
-            result.append({
-                'caseid': c.caseid,
-                'title': c.title,
-                'description': c.description,
-                'casetype': c.casetype,
-                'filingdate':
-                    c.filingdate.isoformat()
-                    if c.filingdate
-                    else None,
-                'status': c.status,
-            })
-
-        return jsonify({
-            'cases': result
-        })
-
-    finally:
-        db.close()
 
 
 @cases_bp.route('/cases/<int:case_id>', methods=['PUT'])
@@ -678,6 +670,21 @@ def update_case(case_id):
                 'message':
                 'Case not found'
             }), 404
+
+        role = current_user.role
+        userid = current_user.userid
+
+        if role == "Admin":
+            pass
+        elif role == "CourtRegistrar":
+            if not _registrar_owns_case(db, userid, case_id):
+                return jsonify({'message': 'Case is not assigned to your court'}), 403
+        elif role == "Lawyer":
+            if not _lawyer_on_case(db, userid, case_id):
+                return jsonify({'message': 'You are not assigned to this case'}), 403
+            data.pop('status', None)  # lawyers can't change case status here
+        else:
+            return jsonify({'message': 'You do not have permission to edit this case'}), 403
 
         case.title = data.get(
             'title',
@@ -734,6 +741,15 @@ def delete_case(case_id):
                 'message':
                 'Case not found'
             }), 404
+
+        role = current_user.role
+        if role == "Admin":
+            pass
+        elif role == "CourtRegistrar":
+            if not _registrar_owns_case(db, current_user.userid, case_id):
+                return jsonify({'message': 'Case is not assigned to your court'}), 403
+        else:
+            return jsonify({'message': 'You do not have permission to delete this case'}), 403
 
         db.delete(case)
 
@@ -1438,40 +1454,6 @@ def get_case_history(case_id):
                 else "Hearing scheduled"
             )
             events.append(ev(label, date=h["hearingdate"], sort_offset=10))
-
-        # 6. Bail
-        cur.execute(
-            "SELECT baildate, bailstatus, bailamount FROM bail WHERE caseid = %s",
-            (case_id,),
-        )
-        bail = cur.fetchone()
-        if bail and bail["baildate"]:
-            events.append(ev(
-                f"Bail application filed"
-                f" — amount: {bail['bailamount'] or 'N/A'}"
-                f", status: {bail['bailstatus'] or 'N/A'}",
-                date=bail["baildate"],
-                sort_offset=10,
-            ))
-
-        # 7. Appeals
-        cur.execute(
-            """
-            SELECT appealdate, decisiondate, appealstatus, decision
-            FROM appeals WHERE caseid = %s ORDER BY appealdate ASC
-            """,
-            (case_id,),
-        )
-        for ap in cur.fetchall():
-            if ap["appealdate"]:
-                events.append(ev("Appeal filed", date=ap["appealdate"], sort_offset=10))
-            if ap["decisiondate"] and ap["decision"]:
-                events.append(ev(
-                    f"Appeal decision: {ap['decision']}",
-                    date=ap["decisiondate"],
-                    status=ap["appealstatus"] or case["status"],
-                    sort_offset=10,
-                ))
 
         # 8. Final decision
         cur.execute(

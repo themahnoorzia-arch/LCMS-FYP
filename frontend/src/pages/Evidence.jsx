@@ -12,9 +12,19 @@ const Evidence = () => {
     caseName: ''
   });
   const [evidence, setEvidence] = useState([]);
+  const [myCases, setMyCases] = useState([]);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null);
   const [selected, setSelected] = useState(null);
+
+  // Fetch the lawyer's own cases, so "Case Name" is a dropdown (not free
+  // text) and can never drift from the real case title on file.
+  useEffect(() => {
+    fetch('/api/cases', { credentials: 'include' })
+      .then(res => res.json())
+      .then(data => setMyCases(data.cases || []))
+      .catch(() => setMyCases([]));
+  }, []);
 
   // Fetch evidence on component mount
   useEffect(() => {
@@ -162,7 +172,17 @@ const Evidence = () => {
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Case Name</Form.Label>
-              <Form.Control name="caseName" value={form.caseName} onChange={handleChange} required disabled={Boolean(editing)} />
+              <Form.Select name="caseName" value={form.caseName} onChange={handleChange} required disabled={Boolean(editing)}>
+                <option value="">Select a case…</option>
+                {editing && !myCases.some(c => c.title === form.caseName) && (
+                  <option value={form.caseName}>{form.caseName}</option>
+                )}
+                {myCases
+                  .filter(c => (c.myaccessstatus || 'approved') === 'approved')
+                  .map(c => (
+                    <option key={c.caseid} value={c.title}>{c.title}</option>
+                  ))}
+              </Form.Select>
             </Form.Group>
           </Modal.Body>
           <Modal.Footer>

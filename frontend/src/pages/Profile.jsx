@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Container, Row, Col, Card, Form, Button, Image } from 'react-bootstrap';
-import { Mail, Phone, MapPin, Briefcase, Award, Upload } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Mail, Phone, MapPin, Briefcase, Award, Upload, ArrowLeft } from 'lucide-react';
 
 const Profile = () => {
+  const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [profileImage, setProfileImage] = useState(`/api/profile/photo/me?t=${Date.now()}`);
   const fileInputRef = useRef(null);
@@ -119,6 +121,14 @@ const Profile = () => {
       }}
     >
       <Container fluid className="p-0">
+        <Button
+          variant="outline-secondary"
+          className="d-inline-flex align-items-center gap-2 mb-3"
+          onClick={() => navigate('/dashboard')}
+        >
+          <ArrowLeft size={18} />
+          Back to Dashboard
+        </Button>
         <Row className="g-4">
           {/* Profile Header */}
           <Col xs={12} md={6} lg={4}>

@@ -12,7 +12,6 @@ const initialProfile = {
   phoneno: '',
   cnic: '',
   address: '',
-  password: '',
 };
 
 function ClientProfile({ onBack }) {
@@ -24,7 +23,6 @@ function ClientProfile({ onBack }) {
   phoneno: '',
   cnic: '',
   address: '',
-  password: '',
 });
   const [isEditing, setIsEditing] = useState(false);
   const [profileImage, setProfileImage] = useState(localStorage.getItem(PROFILE_IMAGE_KEY) || 'https://placehold.co/150');
@@ -266,19 +264,6 @@ function ClientProfile({ onBack }) {
                       type="text"
                       name="address"
                       value={profile.address}
-                      onChange={handleChange}
-                      disabled={!isEditing}
-                      required
-                    />
-                  </Form.Group>
-                </Col>
-                <Col md={12}>
-                  <Form.Group>
-                    <Form.Label>Password</Form.Label>
-                    <Form.Control
-                      type="password"
-                      name="password"
-                      value={profile.password}
                       onChange={handleChange}
                       disabled={!isEditing}
                       required

@@ -11,7 +11,6 @@ import AdminDashboard from './pages/AdminDashboard.jsx';
 import JudgeDashboard from './pages/JudgeDashboard.jsx';
 import CompleteProfile from './pages/CompleteProfile.jsx';
 import CaseHistory from './pages/CaseHistory.jsx';
-import CourtRegistrationPage from './pages/CourtRegistrationForm.jsx';
 import ClientDashboard from './pages/ClientDashboard.jsx';
 import JudgeProfile from './pages/JudgeProfile.jsx';
 import VerifyEmail from './pages/VerifyEmail.jsx';
@@ -55,7 +54,6 @@ function App() {
         <Route path="/AdminDashboard" element={<AdminDashboard />} />
         <Route path="/JudgeDashboard" element={<JudgeDashboard />} />
         <Route path="/case-history/:caseId" element={<DashboardLayout><CaseHistory /></DashboardLayout>} />
-        <Route path="/register-court" element={<CourtRegistrationPage />} />
         <Route path="/ClientDashboard" element={<ClientDashboard />} />
         <Route 
           path="/judge-profile"

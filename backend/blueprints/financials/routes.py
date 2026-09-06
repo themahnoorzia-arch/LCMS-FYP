@@ -135,12 +135,16 @@ def create_payment():
         if not cur.fetchone():
             return jsonify({"message": "Case is not assigned to your court"}), 403
 
-        # Get the lawyer on this case
+        # Get the lawyer on this case — must actually be approved on it, and
+        # prefer the lead lawyer when a case has more than one, so a payment
+        # request (and the notification for it) never goes to a lawyer whose
+        # join request is merely pending or who's a secondary co-counsel.
         cur.execute(
             """
             SELECT l.lawyerid FROM caselawyeraccess cla
             JOIN lawyer l ON l.lawyerid = cla.lawyerid
-            WHERE cla.caseid = %s
+            WHERE cla.caseid = %s AND LOWER(cla.status) = 'approved'
+            ORDER BY cla.is_lead DESC NULLS LAST
             LIMIT 1
             """,
             (case_id,),
@@ -236,14 +240,15 @@ def confirm_payment(payment_id):
         cur.execute(
             """
             UPDATE payments
-            SET mode = %s, paymentdate = %s, status = 'Paid'
+            SET mode = %s, paymentdate = %s, status = 'Pending Verification'
             WHERE paymentid = %s
             """,
             (mode, payment_date, payment_id),
         )
         conn.commit()
 
-        # Notify the registrar who created this payment
+        # Notify the registrar who created this payment — it's a claim,
+        # not a verified payment yet, so ask them to review it.
         try:
             from utils.notifications import push_notification
             cur.execute(
@@ -254,12 +259,77 @@ def confirm_payment(payment_id):
             )
             reg = cur.fetchone()
             if reg:
-                push_notification(reg["userid"], "Payment Confirmed",
-                    f"A lawyer has confirmed payment #{payment_id}.", "success", payment_id)
+                push_notification(reg["userid"], "Payment Awaiting Verification",
+                    f"A lawyer reported payment #{payment_id} as paid. Please verify it.", "warning", payment_id)
         except Exception:
             pass
 
-        return jsonify({"message": "Payment confirmed"}), 200
+        return jsonify({"message": "Payment reported. Awaiting registrar verification."}), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return jsonify({"message": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+# ==========================================================
+# VERIFY PAYMENT (CourtRegistrar only)
+# ==========================================================
+@financials_bp.route("/api/payments/<int:payment_id>/verify", methods=["PATCH"])
+@login_required
+def verify_payment(payment_id):
+    if current_user.role != "CourtRegistrar":
+        return jsonify({"message": "Only court registrars can verify payments"}), 403
+
+    data = request.get_json() or {}
+    approve = data.get("approve", True)
+
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # Must be this registrar's own court, and the payment must actually
+        # be sitting in the "lawyer claims paid" state.
+        cur.execute(
+            """
+            SELECT p.paymentid, p.lawyerid FROM payments p
+            JOIN courtregistrar cr ON cr.courtid = p.courtid
+            WHERE p.paymentid = %s AND cr.userid = %s AND p.status = 'Pending Verification'
+            """,
+            (payment_id, current_user.userid),
+        )
+        payment = cur.fetchone()
+        if not payment:
+            return jsonify({"message": "Payment not found or not awaiting verification"}), 404
+
+        new_status = "Paid" if approve else "Pending"
+        cur.execute(
+            "UPDATE payments SET status = %s WHERE paymentid = %s",
+            (new_status, payment_id),
+        )
+        conn.commit()
+
+        try:
+            from utils.notifications import push_notification
+            if payment["lawyerid"]:
+                cur.execute("SELECT userid FROM lawyer WHERE lawyerid = %s", (payment["lawyerid"],))
+                lr = cur.fetchone()
+                if lr:
+                    msg = (
+                        f"Your payment #{payment_id} has been verified as Paid."
+                        if approve else
+                        f"Your payment #{payment_id} confirmation was rejected by the registrar. Please re-confirm with correct details."
+                    )
+                    push_notification(lr["userid"], "Payment Verification Update", msg,
+                        "success" if approve else "warning", payment_id)
+        except Exception:
+            pass
+
+        return jsonify({"message": f"Payment marked {new_status}"}), 200
 
     except Exception as e:
         if conn:

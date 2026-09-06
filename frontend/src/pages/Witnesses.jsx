@@ -59,12 +59,22 @@ const Witnesses = () => {
     caseName: '', statement: '', statementDate: ''
   });
   const [witnesses, setWitnesses] = useState([]);
+  const [myCases, setMyCases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null);
   const [selected, setSelected] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const submitLock = useRef(false);
+
+  // Fetch the lawyer's own cases, so "Case Name" is a dropdown (not free
+  // text) and can never drift from the real case title on file.
+  useEffect(() => {
+    fetch('/api/cases', { credentials: 'include' })
+      .then(res => res.json())
+      .then(data => setMyCases(data.cases || []))
+      .catch(() => setMyCases([]));
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -205,13 +215,27 @@ const Witnesses = () => {
             {[
               ['firstName', 'First Name'], ['lastName', 'Last Name'], ['cnic', 'CNIC'],
               ['phone', 'Phone'], ['email', 'Email'], ['address', 'Address'],
-              ['pasthistory', 'Past History'], ['caseName', 'Case Name'], ['statement', 'Statement']
+              ['pasthistory', 'Past History'], ['statement', 'Statement']
             ].map(([name, label]) => (
               <Form.Group className="mb-3" key={name}>
                 <Form.Label>{label}</Form.Label>
-                <Form.Control name={name} value={form[name]} onChange={handleChange} required={name !== 'pasthistory'} disabled={Boolean(editing) && name === 'caseName'} />
+                <Form.Control name={name} value={form[name]} onChange={handleChange} required={name !== 'pasthistory'} />
               </Form.Group>
             ))}
+            <Form.Group className="mb-3">
+              <Form.Label>Case Name</Form.Label>
+              <Form.Select name="caseName" value={form.caseName} onChange={handleChange} required disabled={Boolean(editing)}>
+                <option value="">Select a case…</option>
+                {editing && !myCases.some(c => c.title === form.caseName) && (
+                  <option value={form.caseName}>{form.caseName}</option>
+                )}
+                {myCases
+                  .filter(c => (c.myaccessstatus || 'approved') === 'approved')
+                  .map(c => (
+                    <option key={c.caseid} value={c.title}>{c.title}</option>
+                  ))}
+              </Form.Select>
+            </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Statement Date</Form.Label>
               <Form.Control type="date" name="statementDate" value={form.statementDate} onChange={handleChange} required />
