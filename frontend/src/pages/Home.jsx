@@ -100,7 +100,7 @@ const Home = () => {
                   <CaseIcon />
                   <Card.Title as="h5" className="fw-bold mb-2">Intelligent Case Organization</Card.Title>
                   <Card.Text className="text-muted mb-4 flex-grow-1">
-                    Keep all case details, documents, deadlines, and client communications organized and easily accessible.
+                    Keep all case details, deadlines, and client communications organized and easily accessible.
                   </Card.Text>
                   <Button variant="outline-primary" size="sm" className="mt-auto align-self-center stretched-link">Learn More</Button>
                 </Card.Body>
@@ -120,8 +120,8 @@ const Home = () => {
               </Card>
             </Col>
             {/* Feature 3 */}
-            <Col md={6} lg={4} className="d-flex align-items-stretch">
-              <Card className="text-center shadow-sm border-0 hover-lift w-100">
+            
+            {/* <Card className="text-center shadow-sm border-0 hover-lift w-100">
                  <Card.Body className="p-4 d-flex flex-column">
                   <SecurityIcon />
                   <Card.Title as="h5" className="fw-bold mb-2">Bank-Grade Security</Card.Title>
@@ -131,7 +131,7 @@ const Home = () => {
                   <Button variant="outline-primary" size="sm" className="mt-auto align-self-center stretched-link">Learn More</Button>
                 </Card.Body>
               </Card>
-            </Col>
+            </Col>*/}
           </Row>
         </Container>
       </section>
