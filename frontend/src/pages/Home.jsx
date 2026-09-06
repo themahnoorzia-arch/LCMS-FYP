@@ -4,7 +4,6 @@ import {
   Container,
   Row,
   Col,
-  Button,
   Navbar,
   Nav,
   Card,
@@ -23,13 +22,6 @@ const CalendarIcon = () => (
     <path d="M4 .5a.5.5 0 0 0-1 0V1H2a2 2 0 0 0-2 2v1h16V3a2 2 0 0 0-2-2h-1V.5a.5.5 0 0 0-1 0V1H4zM16 14V5H0v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2m-5.146-5.146-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 0 1 .708-.708L7.5 10.793l2.646-2.647a.5.5 0 0 1 .708.708"/>
   </svg>
 );
-
-const SecurityIcon = () => (
- <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" className="bi bi-shield-lock-fill mb-3 text-primary" viewBox="0 0 16 16">
-    <path fillRule="evenodd" d="M8 0c-.69 0-1.843.265-2.928.56-1.11.3-2.229.655-2.887.87a1.52 1.52 0 0 0-1.044 1.262c-.596 4.477.787 7.795 2.465 9.99a11.8 11.8 0 0 0 2.517 2.453c.386.273.744.482 1.048.625.28.132.581.24.829.24s.548-.108.829-.24a7 7 0 0 0 1.048-.625 11.8 11.8 0 0 0 2.517-2.453c1.678-2.195 3.061-5.513 2.465-9.99a1.52 1.52 0 0 0-1.044-1.262c-.658-.215-1.777-.57-2.887-.87C9.843.265 8.69 0 8 0m0 5a1.5 1.5 0 0 1 .5 2.915l.385 1.966a.5.5 0 0 1-.491.575h-.788a.5.5 0 0 1-.49-.575l.384-1.966A1.5 1.5 0 0 1 8 5"/>
-  </svg>
-);
-
 
 const Home = () => {
   return (
@@ -94,44 +86,29 @@ const Home = () => {
           </Row>
           <Row className="g-4 justify-content-center">
             {/* Feature 1 */}
-            <Col md={6} lg={4} className="d-flex align-items-stretch">
+            <Col md={6} lg={5} className="d-flex align-items-stretch">
               <Card className="text-center shadow-sm border-0 hover-lift w-100">
                  <Card.Body className="p-4 d-flex flex-column">
                   <CaseIcon />
-                  <Card.Title as="h5" className="fw-bold mb-2">Intelligent Case Organization</Card.Title>
+                  <Card.Title as="h5" className="fw-bold mb-2">End-to-End Case Lifecycle</Card.Title>
                   <Card.Text className="text-muted mb-4 flex-grow-1">
-                    Keep all case details, deadlines, and client communications organized and easily accessible.
+                    From filing to final verdict — cases, evidence, witnesses, hearings, and history all stay linked and up to date in one place, for every party involved.
                   </Card.Text>
-                  <Button variant="outline-primary" size="sm" className="mt-auto align-self-center stretched-link">Learn More</Button>
                 </Card.Body>
               </Card>
             </Col>
             {/* Feature 2 */}
-            <Col md={6} lg={4} className="d-flex align-items-stretch">
+            <Col md={6} lg={5} className="d-flex align-items-stretch">
               <Card className="text-center shadow-sm border-0 hover-lift w-100">
                  <Card.Body className="p-4 d-flex flex-column">
                   <CalendarIcon />
-                  <Card.Title as="h5" className="fw-bold mb-2">Automated Calendaring</Card.Title>
+                  <Card.Title as="h5" className="fw-bold mb-2">Built for Every Role in the Courtroom</Card.Title>
                   <Card.Text className="text-muted mb-4 flex-grow-1">
-                    Never miss a deadline. Track court dates, client meetings, and tasks with automated reminders and alerts.
+                    Admins, court registrars, judges, lawyers, and clients each get their own tailored dashboard — the right tools and visibility, with nothing extra to get in the way.
                   </Card.Text>
-                   <Button variant="outline-primary" size="sm" className="mt-auto align-self-center stretched-link">Learn More</Button>
                 </Card.Body>
               </Card>
             </Col>
-            {/* Feature 3 */}
-            
-            {/* <Card className="text-center shadow-sm border-0 hover-lift w-100">
-                 <Card.Body className="p-4 d-flex flex-column">
-                  <SecurityIcon />
-                  <Card.Title as="h5" className="fw-bold mb-2">Bank-Grade Security</Card.Title>
-                  <Card.Text className="text-muted mb-4 flex-grow-1">
-                    Protect sensitive client data with end-to-end encryption and secure cloud storage. Compliance built-in.
-                  </Card.Text>
-                  <Button variant="outline-primary" size="sm" className="mt-auto align-self-center stretched-link">Learn More</Button>
-                </Card.Body>
-              </Card>
-            </Col>*/}
           </Row>
         </Container>
       </section>
@@ -144,6 +121,23 @@ const Home = () => {
               <h2 className="fw-bold mb-3">Ready to Transform Your Practice?</h2>
               <p className="lead mb-4">Join LegalEase today and experience the future of legal case management.</p>
               <Link to="/signup" className="btn btn-light btn-lg shadow-sm px-5">Start Your Free Trial</Link>
+            </Col>
+          </Row>
+        </Container>
+      </section>
+
+      {/* Contact Admin Section */}
+      <section className="contact-section text-center py-5">
+        <Container>
+          <Row className="justify-content-center">
+            <Col md={8} lg={6}>
+              <h2 className="fw-bold mb-2">Have a Question?</h2>
+              <p className="lead text-muted mb-3">
+                For account issues, approvals, or anything else, reach out to the system administrator directly.
+              </p>
+              <a href="mailto:courtcentral5@gmail.com" className="btn btn-outline-primary btn-lg px-4">
+                courtcentral5@gmail.com
+              </a>
             </Col>
           </Row>
         </Container>
@@ -254,6 +248,20 @@ const Home = () => {
         }
         .cta-section .btn-lg:hover {
           background: #1ec6b6;
+          color: #fff;
+        }
+        .contact-section {
+          background: #fff;
+        }
+        .contact-section .btn-outline-primary {
+          border-radius: 2rem;
+          font-weight: 600;
+          color: #1ec6b6;
+          border-color: #1ec6b6;
+        }
+        .contact-section .btn-outline-primary:hover {
+          background: #1ec6b6;
+          border-color: #1ec6b6;
           color: #fff;
         }
         .navbar {
