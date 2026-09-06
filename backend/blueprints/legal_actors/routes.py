@@ -45,9 +45,10 @@ def get_judges_for_court():
                     SELECT c.title
                     FROM judgeaccess ja
                     JOIN cases c ON ja.caseid = c.caseid
-                    WHERE ja.judgeid = %s
+                    JOIN courtaccess ca ON ca.caseid = c.caseid
+                    WHERE ja.judgeid = %s AND ca.courtid = %s
                     """,
-                    (judge["judgeid"],),
+                    (judge["judgeid"], court["courtid"]),
                 )
                 assigned_titles = [c["title"] for c in cur.fetchall()]
                 response.append(
@@ -382,6 +383,9 @@ def search_clients():
     """Search already-registered clients (users who signed up with the
     CaseParticipant role) by name or CNIC. Used so lawyers can only attach
     real, existing clients to a case instead of typing a free-text name."""
+    if current_user.role != 'Lawyer':
+        return jsonify({'message': 'Lawyer access required'}), 403
+
     query = (request.args.get('query') or '').strip()
 
     conn = None

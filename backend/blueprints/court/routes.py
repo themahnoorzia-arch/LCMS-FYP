@@ -181,6 +181,10 @@ def create_courtroom():
 
         courtid = row[0]
 
+        # courtroomid is scoped per court, not auto-generated — lock the
+        # table while allocating the next id to avoid two concurrent
+        # requests both computing and inserting the same value.
+        cur.execute("LOCK TABLE courtroom IN EXCLUSIVE MODE")
         cur.execute(
             """
             SELECT COALESCE(MAX(courtroomid), 0) + 1
@@ -243,6 +247,9 @@ def create_courtroom():
 @login_required
 def update_courtroom(courtroom_id):
 
+    if current_user.role not in ("CourtRegistrar", "Admin"):
+        return jsonify({"message": "Court registrar access required"}), 403
+
     data = request.get_json()
 
     number = data.get("number")
@@ -255,33 +262,43 @@ def update_courtroom(courtroom_id):
         conn = get_pg_connection()
         cur = conn.cursor()
 
-        cur.execute(
-            """
-            SELECT 1
-            FROM courtroom
-            WHERE courtroomid=%s
-            """,
-            (courtroom_id,)
-        )
+        if current_user.role == "Admin":
+            cur.execute("SELECT 1 FROM courtroom WHERE courtroomid=%s", (courtroom_id,))
+            if not cur.fetchone():
+                return jsonify({"message": "Courtroom not found"}), 404
+            cur.execute(
+                """
+                UPDATE courtroom
+                SET courtroomno=%s, capacity=%s, availability=%s
+                WHERE courtroomid=%s
+                """,
+                (number, capacity, availability, courtroom_id),
+            )
+        else:
+            cur.execute(
+                "SELECT courtid FROM courtregistrar WHERE userid = %s",
+                (current_user.userid,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return jsonify({"message": "Court registrar not found"}), 404
+            courtid = row[0]
 
-        if not cur.fetchone():
-            return jsonify({
-                "message": "Courtroom not found"
-            }), 404
+            cur.execute(
+                "SELECT 1 FROM courtroom WHERE courtroomid=%s AND courtid=%s",
+                (courtroom_id, courtid),
+            )
+            if not cur.fetchone():
+                return jsonify({"message": "Courtroom not found in your court"}), 404
 
-        cur.execute("""
-            UPDATE courtroom
-            SET
-                courtroomno=%s,
-                capacity=%s,
-                availability=%s
-            WHERE courtroomid=%s
-        """, (
-            number,
-            capacity,
-            availability,
-            courtroom_id
-        ))
+            cur.execute(
+                """
+                UPDATE courtroom
+                SET courtroomno=%s, capacity=%s, availability=%s
+                WHERE courtroomid=%s AND courtid=%s
+                """,
+                (number, capacity, availability, courtroom_id, courtid),
+            )
 
         conn.commit()
 
@@ -310,27 +327,34 @@ def update_courtroom(courtroom_id):
 @login_required
 def delete_courtroom(courtroom_id):
 
+    if current_user.role not in ("CourtRegistrar", "Admin"):
+        return jsonify({"message": "Court registrar access required"}), 403
+
     conn = None
 
     try:
         conn = get_pg_connection()
         cur = conn.cursor()
 
-        cur.execute("""
-            SELECT 1
-            FROM courtroom
-            WHERE courtroomid=%s
-        """, (courtroom_id,))
+        if current_user.role == "Admin":
+            cur.execute("DELETE FROM courtroom WHERE courtroomid=%s RETURNING courtroomid", (courtroom_id,))
+        else:
+            cur.execute(
+                "SELECT courtid FROM courtregistrar WHERE userid = %s",
+                (current_user.userid,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return jsonify({"message": "Court registrar not found"}), 404
+            courtid = row[0]
+
+            cur.execute(
+                "DELETE FROM courtroom WHERE courtroomid=%s AND courtid=%s RETURNING courtroomid",
+                (courtroom_id, courtid),
+            )
 
         if not cur.fetchone():
-            return jsonify({
-                "message": "Courtroom not found"
-            }), 404
-
-        cur.execute("""
-            DELETE FROM courtroom
-            WHERE courtroomid=%s
-        """, (courtroom_id,))
+            return jsonify({"message": "Courtroom not found"}), 404
 
         conn.commit()
 

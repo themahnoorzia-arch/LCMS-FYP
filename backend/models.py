@@ -125,6 +125,7 @@ class Prosecutor(Base):
     name: Mapped[Optional[str]] = mapped_column(String(255))
     experience: Mapped[Optional[int]] = mapped_column(Integer)
     status: Mapped[Optional[str]] = mapped_column(String(255))
+    courtid: Mapped[Optional[int]] = mapped_column(BigInteger)
 
     cases: Mapped[List['Cases']] = relationship('Cases', secondary='prosecutorassign', back_populates='prosecutor')
 
@@ -372,7 +373,7 @@ t_prosecutorassign = Table(
     'prosecutorassign', Base.metadata,
     Column('prosecutorid', BigInteger, primary_key=True, nullable=False),
     Column('caseid', BigInteger, primary_key=True, nullable=False),
-    ForeignKeyConstraint(['caseid'], ['cases.caseid'], name='prosecutorassign_caseid_fkey'),
+    ForeignKeyConstraint(['caseid'], ['cases.caseid'], ondelete='CASCADE', name='prosecutorassign_caseid_fkey'),
     ForeignKeyConstraint(['prosecutorid'], ['prosecutor.prosecutorid'], ondelete='CASCADE', onupdate='CASCADE', name='prosecutorassignfk'),
     PrimaryKeyConstraint('prosecutorid', 'caseid', name='prosecutorassignpk')
 )
@@ -394,7 +395,7 @@ t_caselawyeraccess = Table(
 class Caseparticipant(Base):
     __tablename__ = 'caseparticipant'
     __table_args__ = (
-        ForeignKeyConstraint(['lawyerid'], ['lawyer.lawyerid'], name='participantlawyerfk'),
+        ForeignKeyConstraint(['lawyerid'], ['lawyer.lawyerid'], ondelete='SET NULL', name='participantlawyerfk'),
         ForeignKeyConstraint(['userid'], ['users.userid'], ondelete='CASCADE', onupdate='CASCADE', name='participantuserfk'),
         PrimaryKeyConstraint('participantid', name='caseparticipant_pkey')
     )
@@ -478,13 +479,13 @@ class Payments(Base):
         CheckConstraint('balance >= 0::numeric', name='payments_balance_check'),
         CheckConstraint("mode::text = ANY (ARRAY['Cash'::character varying, 'Credit/Debit card'::character varying, 'Online Transfer'::character varying]::text[])", name='payments_mode_check'),
         ForeignKeyConstraint(['caseid'], ['cases.caseid'], ondelete='SET NULL', onupdate='CASCADE', name='paymentcasefk'),
-        ForeignKeyConstraint(['courtid'], ['court.courtid'], ondelete='CASCADE', onupdate='CASCADE', name='paymentscourtfk'),
+        ForeignKeyConstraint(['courtid'], ['court.courtid'], ondelete='SET NULL', onupdate='CASCADE', name='paymentscourtfk'),
         ForeignKeyConstraint(['lawyerid'], ['lawyer.lawyerid'], ondelete='SET NULL', onupdate='CASCADE', name='paymentslawyerfk'),
         PrimaryKeyConstraint('paymentid', name='payments_pkey')
     )
 
     paymentid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    mode: Mapped[str] = mapped_column(String(50))
+    mode: Mapped[Optional[str]] = mapped_column(String(50))
     lawyerid: Mapped[Optional[int]] = mapped_column(BigInteger)
     courtid: Mapped[Optional[int]] = mapped_column(BigInteger)
     caseid: Mapped[Optional[int]] = mapped_column(BigInteger)
@@ -492,7 +493,7 @@ class Payments(Base):
     balance: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric(10, 2))
     purpose: Mapped[Optional[str]] = mapped_column(String(255))
     paymentdate: Mapped[Optional[datetime.date]] = mapped_column(Date)
-    status: Mapped[Optional[str]] = mapped_column(Enum('Paid', 'Pending', name='payment_status'), server_default=text("'Pending'::payment_status"))
+    status: Mapped[Optional[str]] = mapped_column(Enum('Paid', 'Pending', 'Pending Verification', name='payment_status'), server_default=text("'Pending'::payment_status"))
 
     cases: Mapped[Optional['Cases']] = relationship('Cases', back_populates='payments')
     court: Mapped[Optional['Court']] = relationship('Court', back_populates='payments')

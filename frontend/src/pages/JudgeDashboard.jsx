@@ -111,6 +111,7 @@ function JudgeDashboard() {
   const [caseError, setCaseError] = useState(null); 
 
   useEffect(() => {
+  if (activeSection !== 'assigned') return;
   const fetchCases = async () => {
     try {
       const response = await fetch('/api/cases', {
@@ -152,9 +153,10 @@ function JudgeDashboard() {
   };
 
   fetchCases();
-}, []);
+}, [activeSection]);
 
 useEffect(() => {
+  if (activeSection !== 'schedule') return;
   const fetchHearings = async () => {
     try {
       const response = await fetch('/api/hearings', {
@@ -189,7 +191,7 @@ useEffect(() => {
   };
 
   fetchHearings();
-}, []);
+}, [activeSection]);
 
 
   const handleProfileClick = () => {
@@ -906,16 +908,6 @@ const updateHearingRemarks = async (hearingId, remarks) => {
                   <span className="fw-bold">{item.submittedDate}</span>
                 </div>
                 <p className="mb-2">{item.description}</p>
-                <div className="d-flex align-items-center gap-2">
-                  <small className="text-muted">Path: {item.evidencePath}</small>
-                  {item.evidencePath && <Button
-                    variant="outline-primary" 
-                    size="sm"
-                    onClick={() => window.open(item.evidencePath, '_blank')}
-                  >
-                    View Evidence
-                  </Button>}
-                </div>
               </ListGroup.Item>
             ))}
           </ListGroup>
@@ -949,9 +941,20 @@ const updateHearingRemarks = async (hearingId, remarks) => {
                 required
               >
                 <option value="">Select Verdict</option>
-                <option value="Guilty">Guilty</option>
-                <option value="Not Guilty">Not Guilty</option>
-                <option value="Dismissed">Dismissed</option>
+                {(selectedCase?.caseType || '').toLowerCase() === 'criminal' ? (
+                  <>
+                    <option value="Guilty">Guilty</option>
+                    <option value="Not Guilty">Not Guilty</option>
+                    <option value="Dismissed">Dismissed</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="Ruled in Favor of Petitioner">Ruled in Favor of Petitioner</option>
+                    <option value="Ruled in Favor of Respondent">Ruled in Favor of Respondent</option>
+                    <option value="Settled Amicably">Settled Amicably</option>
+                    <option value="Dismissed">Dismissed</option>
+                  </>
+                )}
               </Form.Select>
             </Form.Group>
             <Form.Group className="mb-3">

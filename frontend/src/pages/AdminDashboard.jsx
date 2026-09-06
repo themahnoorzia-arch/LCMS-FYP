@@ -105,16 +105,16 @@ const AdminDashboard = () => {
   }, []);
 
   useEffect(() => {
-    if (activePage === 'overview' && !stats) {
+    if (activePage === 'overview') {
       load('stats', '/api/admin/stats', d => setStats(d));
     }
-    if (activePage === 'users' && users.length === 0) {
+    if (activePage === 'users') {
       load('users', '/api/admin/users', d => setUsers(d.users || []));
     }
-    if (activePage === 'cases' && cases.length === 0) {
+    if (activePage === 'cases') {
       load('cases', '/api/admin/cases', d => setCases(d.cases || []));
     }
-    if (activePage === 'logs' && logs.length === 0) {
+    if (activePage === 'logs') {
       load('logs', '/api/logs', d => setLogs(Array.isArray(d) ? d : []));
     }
     if (activePage === 'approvals') {

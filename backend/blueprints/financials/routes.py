@@ -104,14 +104,16 @@ def create_payment():
     purpose = data.get("purpose", "").strip()
     balance = data.get("balance")
     payment_type = data.get("paymenttype", "Court Fee").strip()
-    mode = data.get("mode", "").strip()
+    requested_lawyer_id = data.get("lawyerid")
 
-    if not case_id or not purpose or balance is None or not mode:
-        return jsonify({"message": "caseid, purpose, balance, and mode are required"}), 400
+    if not case_id or not purpose or balance is None:
+        return jsonify({"message": "caseid, purpose, and balance are required"}), 400
 
-    allowed_modes = {"Cash", "Credit/Debit card", "Online Transfer"}
-    if mode not in allowed_modes:
-        return jsonify({"message": "Invalid payment mode"}), 400
+    try:
+        if float(balance) <= 0:
+            return jsonify({"message": "Balance must be greater than zero"}), 400
+    except (TypeError, ValueError):
+        return jsonify({"message": "Balance must be a valid number"}), 400
 
     conn = None
     try:
@@ -135,22 +137,38 @@ def create_payment():
         if not cur.fetchone():
             return jsonify({"message": "Case is not assigned to your court"}), 403
 
-        # Get the lawyer on this case — must actually be approved on it, and
-        # prefer the lead lawyer when a case has more than one, so a payment
-        # request (and the notification for it) never goes to a lawyer whose
-        # join request is merely pending or who's a secondary co-counsel.
-        cur.execute(
-            """
-            SELECT l.lawyerid FROM caselawyeraccess cla
-            JOIN lawyer l ON l.lawyerid = cla.lawyerid
-            WHERE cla.caseid = %s AND LOWER(cla.status) = 'approved'
-            ORDER BY cla.is_lead DESC NULLS LAST
-            LIMIT 1
-            """,
-            (case_id,),
-        )
-        lawyer_row = cur.fetchone()
-        lawyer_id = lawyer_row["lawyerid"] if lawyer_row else None
+        # Which lawyer this payment is owed by/directed to — a case with
+        # counsel on both sides can have either side pay, so the registrar
+        # picks explicitly. Whichever lawyer is named must actually be
+        # approved on this exact case (not just approved on some other case).
+        if requested_lawyer_id:
+            cur.execute(
+                """
+                SELECT l.lawyerid FROM caselawyeraccess cla
+                JOIN lawyer l ON l.lawyerid = cla.lawyerid
+                WHERE cla.caseid = %s AND l.lawyerid = %s AND LOWER(cla.status) = 'approved'
+                """,
+                (case_id, requested_lawyer_id),
+            )
+            lawyer_row = cur.fetchone()
+            if not lawyer_row:
+                return jsonify({"message": "That lawyer is not approved on this case"}), 400
+            lawyer_id = lawyer_row["lawyerid"]
+        else:
+            # No lawyer specified — fall back to the lead lawyer (or the
+            # only lawyer, on a single-sided case).
+            cur.execute(
+                """
+                SELECT l.lawyerid FROM caselawyeraccess cla
+                JOIN lawyer l ON l.lawyerid = cla.lawyerid
+                WHERE cla.caseid = %s AND LOWER(cla.status) = 'approved'
+                ORDER BY cla.is_lead DESC NULLS LAST
+                LIMIT 1
+                """,
+                (case_id,),
+            )
+            lawyer_row = cur.fetchone()
+            lawyer_id = lawyer_row["lawyerid"] if lawyer_row else None
 
         # This database schema does not generate payment IDs automatically.
         # Lock the table while allocating the next ID to avoid duplicate IDs.
@@ -162,14 +180,13 @@ def create_payment():
             """
             INSERT INTO payments
                 (paymentid, purpose, balance, mode, paymenttype, caseid, courtid, lawyerid, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Pending')
+            VALUES (%s, %s, %s, NULL, %s, %s, %s, %s, 'Pending')
             RETURNING paymentid
             """,
             (
                 payment_id,
                 purpose,
                 Decimal(str(balance)),
-                mode,
                 payment_type,
                 case_id,
                 court_id,

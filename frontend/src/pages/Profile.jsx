@@ -3,6 +3,24 @@ import { Container, Row, Col, Card, Form, Button, Image } from 'react-bootstrap'
 import { useNavigate } from 'react-router-dom';
 import { Mail, Phone, MapPin, Briefcase, Award, Upload, ArrowLeft } from 'lucide-react';
 
+const onlyDigits = (value) => (value || '').replace(/\D/g, '');
+const isEmailValid = (email) => /\S+@\S+\.\S+/.test(email || '');
+const isCnicValid = (value) => onlyDigits(value).length === 13;
+const isPhoneValid = (value) => {
+  const digits = onlyDigits(value);
+  return digits.length === 11 && digits.startsWith('03');
+};
+const isAdultDob = (value) => {
+  const dob = new Date(value);
+  const today = new Date();
+  if (Number.isNaN(dob.getTime())) return false;
+  if (dob > today) return false;
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDiff = today.getMonth() - dob.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) age--;
+  return age >= 18;
+};
+
 const Profile = () => {
   const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
@@ -28,6 +46,7 @@ const Profile = () => {
       try {
         const res = await fetch('/api/lawyerprofile', {
           method: 'GET',
+          credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${localStorage.getItem('userToken')}`,
@@ -51,20 +70,7 @@ const Profile = () => {
           experience: data.experience || '',
         });
       } catch (err) {
-        setError(null);
-        setProfileData({
-          firstName: 'Mock',
-          lastName: 'Lawyer',
-          email: 'mocklawyer@email.com',
-          phone: '123-456-7890',
-          specialization: 'Civil Law',
-          cnic: '12345-6789012-3',
-          dob: '1990-01-01',
-          barLicense: 'BAR-123456',
-          experience: '5',
-        });
-        setProfileImage('https://placehold.co/40');
-        setLoading(false);
+        setError(err.message || 'Failed to load profile. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -76,9 +82,26 @@ const Profile = () => {
   const handleEdit = () => setIsEditing(!isEditing);
 
   const handleSave = async () => {
+    if (profileData.email && !isEmailValid(profileData.email)) {
+      alert('Please enter a valid email address.');
+      return;
+    }
+    if (profileData.phone && !isPhoneValid(profileData.phone)) {
+      alert('Phone number must be a valid 11-digit Pakistani mobile number (e.g. 03XXXXXXXXX).');
+      return;
+    }
+    if (profileData.cnic && !isCnicValid(profileData.cnic)) {
+      alert('CNIC must be exactly 13 digits (e.g. 12345-1234567-1).');
+      return;
+    }
+    if (profileData.dob && !isAdultDob(profileData.dob)) {
+      alert('You must be at least 18 years old, and the date of birth cannot be in the future.');
+      return;
+    }
     try {
       const res = await fetch('/api/lawyerprofile', {
         method: 'PUT',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('userToken')}`,
@@ -350,8 +373,9 @@ const Profile = () => {
                           type="tel"
                           value={profileData.phone}
                           disabled={!isEditing}
+                          maxLength={11}
                           onChange={(e) =>
-                            setProfileData({ ...profileData, phone: e.target.value })
+                            setProfileData({ ...profileData, phone: onlyDigits(e.target.value).slice(0, 11) })
                           }
                           style={{ 
                             borderRadius: '0.75rem',
@@ -370,7 +394,7 @@ const Profile = () => {
                           value={profileData.cnic}
                           disabled={!isEditing}
                           onChange={(e) =>
-                            setProfileData({ ...profileData, cnic: e.target.value })
+                            setProfileData({ ...profileData, cnic: e.target.value.replace(/[^0-9-]/g, '') })
                           }
                           style={{ 
                             borderRadius: '0.75rem',

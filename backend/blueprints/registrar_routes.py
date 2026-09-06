@@ -40,6 +40,21 @@ def merge_cases():
     try:
         conn = get_pg_connection()
         cur = conn.cursor()
+
+        cur.execute("SELECT courtid FROM courtregistrar WHERE userid = %s", (current_user.userid,))
+        row = cur.fetchone()
+        if not row or not row[0]:
+            return jsonify({'error': 'Registrar is not assigned to a court'}), 400
+        courtid = row[0]
+
+        cur.execute(
+            "SELECT caseid FROM courtaccess WHERE courtid = %s AND caseid IN (%s, %s)",
+            (courtid, keep_id, discard_id),
+        )
+        owned = {r[0] for r in cur.fetchall()}
+        if keep_id not in owned or discard_id not in owned:
+            return jsonify({'error': 'Both cases must belong to your court'}), 403
+
         cur.execute('SELECT merge_cases(%s, %s)', (keep_id, discard_id))
         conn.commit()
         return jsonify({'message': 'Cases merged successfully'}), 200

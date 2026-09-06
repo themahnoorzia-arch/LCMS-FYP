@@ -6,7 +6,7 @@ load_dotenv()
 class Config:
     SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL')
     SESSION_TYPE = os.getenv('SESSION_TYPE', 'filesystem')
-    SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-change-in-production')
+    SECRET_KEY = os.getenv('SECRET_KEY')
 
     # Flask-Mail (Gmail SMTP)
     MAIL_SERVER = 'smtp.gmail.com'
@@ -22,3 +22,9 @@ class Config:
     def validate_config():
         if not Config.SQLALCHEMY_DATABASE_URI:
             raise ValueError("DATABASE_URL environment variable is required but not set")
+        if not Config.SECRET_KEY:
+            raise ValueError(
+                "SECRET_KEY environment variable is required but not set — "
+                "Flask-Login signs session cookies with this key, so a missing "
+                "value must never silently fall back to a default."
+            )

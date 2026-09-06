@@ -57,7 +57,7 @@ function ClientDashboard() {
   }, []);
 
   useEffect(() => {
-    // Fetch cases on mount
+    if (activeSection !== 'cases') return;
     const fetchCases = async () => {
       try {
         const response = await fetch('/api/cases', {
@@ -104,7 +104,7 @@ function ClientDashboard() {
     };
 
     fetchCases();
-  }, []);
+  }, [activeSection]);
 
   const handleProfileClick = () => {
     setActiveSection('profile');

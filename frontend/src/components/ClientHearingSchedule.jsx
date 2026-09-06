@@ -20,13 +20,17 @@ function ClientHearingSchedule() {
   const [events, setEvents] = useState([]); // This will store the hearings
   const [showEventModal, setShowEventModal] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [fetchError, setFetchError] = useState(null);
 
   // Fetch hearings data from the backend using fetch API
   useEffect(() => {
     fetch('/api/hearings', { credentials: 'include' })
-      .then((response) => response.json())  // Parse the response as JSON
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Failed to load hearings');
+        return response.json();
+      })
       .then((data) => {
-        const hearings = data.hearings.map(hearing => ({
+        const hearings = (data.hearings || []).map(hearing => ({
           id: hearing.hearingid,
           hearingNumber: hearing.hearingnumber || hearing.hearingid,
           title: hearing.casename || 'Court Hearing',
@@ -44,6 +48,7 @@ function ClientHearingSchedule() {
       })
       .catch((error) => {
         console.error('Error fetching hearings data:', error);
+        setFetchError('Could not load hearings. Please try again later.');
       });
   }, []); // This runs once when the component is mounted
 
@@ -171,7 +176,11 @@ function ClientHearingSchedule() {
           <Card className="shadow-sm border-0 rounded-4 h-100">
             <Card.Body className="p-3 p-md-4">
               <h5 className="mb-4 fw-bold">{selectedDate.format('dddd, MMMM Do')}</h5>
-              {selectedEvents.length === 0 ? (
+              {fetchError ? (
+                <div className="text-center text-danger py-5">
+                  <p className="mb-0">{fetchError}</p>
+                </div>
+              ) : selectedEvents.length === 0 ? (
                 <div className="text-center text-muted py-5">
                   <CalendarIcon size={48} className="mb-3 opacity-50" />
                   <p className="mb-0">No hearings scheduled for this day</p>

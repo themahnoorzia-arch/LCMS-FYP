@@ -6,6 +6,7 @@ import Signup from './pages/Signup.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Profile from './pages/Profile.jsx';
 import DashboardLayout from './components/DashboardLayout.jsx';
+import ProtectedRoute from './components/ProtectedRoute.jsx';
 import RegistrarDashboard from './pages/RegistrarDashboard.jsx'; // Import your layout
 import AdminDashboard from './pages/AdminDashboard.jsx';
 import JudgeDashboard from './pages/JudgeDashboard.jsx';
@@ -34,33 +35,39 @@ function App() {
         <Route path="/CompleteProfile" element={<CompleteProfile />} />
         
         {/* Dashboard and Profile routes with layout */}
-        <Route 
+        <Route
           path="/dashboard"
           element={
-            <DashboardLayout>
-              <Dashboard />
-            </DashboardLayout>
+            <ProtectedRoute allowedRole="Lawyer">
+              <DashboardLayout>
+                <Dashboard />
+              </DashboardLayout>
+            </ProtectedRoute>
           }
         />
-        <Route 
+        <Route
           path="/profile"
           element={
-            <DashboardLayout>
-              <Profile />
-            </DashboardLayout>
+            <ProtectedRoute allowedRole="Lawyer">
+              <DashboardLayout>
+                <Profile />
+              </DashboardLayout>
+            </ProtectedRoute>
           }
         />
-        <Route path="/RegistrarDashboard" element={<RegistrarDashboard />} />
-        <Route path="/AdminDashboard" element={<AdminDashboard />} />
-        <Route path="/JudgeDashboard" element={<JudgeDashboard />} />
+        <Route path="/RegistrarDashboard" element={<ProtectedRoute allowedRole="CourtRegistrar"><RegistrarDashboard /></ProtectedRoute>} />
+        <Route path="/AdminDashboard" element={<ProtectedRoute allowedRole="Admin"><AdminDashboard /></ProtectedRoute>} />
+        <Route path="/JudgeDashboard" element={<ProtectedRoute allowedRole="Judge"><JudgeDashboard /></ProtectedRoute>} />
         <Route path="/case-history/:caseId" element={<DashboardLayout><CaseHistory /></DashboardLayout>} />
-        <Route path="/ClientDashboard" element={<ClientDashboard />} />
-        <Route 
+        <Route path="/ClientDashboard" element={<ProtectedRoute allowedRole="Client"><ClientDashboard /></ProtectedRoute>} />
+        <Route
           path="/judge-profile"
           element={
-            <DashboardLayout>
-              <JudgeProfile />
-            </DashboardLayout>
+            <ProtectedRoute allowedRole="Judge">
+              <DashboardLayout>
+                <JudgeProfile />
+              </DashboardLayout>
+            </ProtectedRoute>
           }
         />
 

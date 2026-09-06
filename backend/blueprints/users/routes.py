@@ -432,6 +432,9 @@ def get_admin_profile():
 @users_bp.route("/api/logs", methods=["GET"])
 @login_required
 def get_logs():
+    if current_user.role != "Admin":
+        return jsonify({"error": "Admin access required"}), 403
+
     conn = None
     try:
         conn = get_pg_connection()
@@ -586,6 +589,7 @@ def get_my_profile_photo():
 
 
 @users_bp.route("/api/profile/photo/<int:user_id>", methods=["GET"])
+@login_required
 def get_profile_photo(user_id):
     for ext in _ALLOWED_IMG:
         path = os.path.join(_PHOTO_DIR, f"{user_id}{ext}")

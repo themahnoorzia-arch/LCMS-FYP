@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Image, Card, Row, Col, InputGroup, Form, Button, Badge, Table, Modal } from 'react-bootstrap';
+import { Image, Card, Row, Col, InputGroup, Form, Button, Badge, Table, Modal, ListGroup } from 'react-bootstrap';
 import { User, PlusCircle, Search, LogOut } from 'lucide-react';
 import SidebarNav from '../components/dashboard/SidebarNav';
 import CalendarSummary from '../components/dashboard/CalendarSummary';
@@ -96,7 +96,6 @@ const Dashboard = () => {
   const [cases, setCases] = useState([]);
   const [showCaseModal, setShowCaseModal] = useState(false);
   const [editingCase, setEditingCase] = useState(null);
-  const [caseHistory, setCaseHistory] = useState([]);
   const [caseForm, setCaseForm] = useState({
     title: '',
     description: '',
@@ -118,6 +117,33 @@ const Dashboard = () => {
   const [status, setStatus] = useState('All');
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyCase, setHistoryCase] = useState(null);
+  const [caseHistory, setCaseHistory] = useState([]);
+  const [loadingTimeline, setLoadingTimeline] = useState(false);
+
+  const getCaseHistory = async (caseId) => {
+    try {
+      const res = await fetch(`/api/cases/${caseId}/history`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) return [];
+      return data.history || [];
+    } catch (err) {
+      console.error('Failed to fetch case history:', err);
+      return [];
+    }
+  };
+
+  const handleViewHistory = async (case_) => {
+    setHistoryCase(case_);
+    setCaseHistory([]);
+    setLoadingTimeline(true);
+    setShowHistoryModal(true);
+    const history = await getCaseHistory(case_.id);
+    setCaseHistory(history);
+    setLoadingTimeline(false);
+  };
   const [showDecisionModal, setShowDecisionModal] = useState(false);
   const [decisionCase, setDecisionCase] = useState(null);
 
@@ -247,8 +273,10 @@ const Dashboard = () => {
 };
 
     fetchLawyerData();
-    fetchCases();
-  }, []);
+    if (activeView === 'cases') {
+      fetchCases();
+    }
+  }, [activeView]);
 
   const handleProfileClick = () => navigate('/profile');
 
@@ -499,7 +527,7 @@ const handleCaseSubmit = async (e) => {
 </td>
 
                             <td>
-                              <Button variant="link" size="sm" onClick={() => { setHistoryCase(case_); setShowHistoryModal(true); }}>View</Button>
+                              <Button variant="link" size="sm" onClick={() => handleViewHistory(case_)}>View</Button>
                             </td>
                             <td>
                               {isPending ? (
@@ -824,19 +852,28 @@ const handleCaseSubmit = async (e) => {
           <Button variant="secondary" onClick={() => setShowDecisionModal(false)}>Close</Button>
         </Modal.Footer>
       </Modal>
-<Modal show={showHistoryModal} onHide={() => setShowHistoryModal(false)} centered>
+<Modal show={showHistoryModal} onHide={() => setShowHistoryModal(false)} centered size="lg">
   <Modal.Header closeButton>
-    <Modal.Title>Case History</Modal.Title>
+    <Modal.Title>{historyCase?.title || 'Case History'}</Modal.Title>
   </Modal.Header>
-  <Modal.Body>
-    {historyCase?.history?.length > 0 ? (
-      <ul>
-        {historyCase.history.map((h, idx) => (
-          <li key={idx}><strong>{h.date}:</strong> {h.event}</li>
-        ))}
-      </ul>
+  <Modal.Body style={{ maxHeight: '65vh', overflowY: 'auto' }}>
+    {loadingTimeline ? (
+      <div className="text-center text-muted py-4">Loading timeline...</div>
+    ) : caseHistory.length === 0 ? (
+      <div className="text-center text-muted py-4">No history available for this case.</div>
     ) : (
-      <div className="text-center text-muted">No history available for this case.</div>
+      <ListGroup variant="flush">
+        {caseHistory.map((entry, idx) => (
+          <ListGroup.Item key={entry.historyid || idx} className="border-0 mb-3 p-3 rounded-3 shadow-sm">
+            <div className="d-flex align-items-center gap-2 mb-1">
+              <Badge bg="light" text="dark" className="border">{entry.actionDate || 'N/A'}</Badge>
+              <Badge bg={entry.status === 'Closed' ? 'success' : entry.status === 'Pending' ? 'secondary' : 'primary'}>{entry.status}</Badge>
+            </div>
+            <div className="fw-bold">{entry.actionTaken}</div>
+            {entry.remarks && <div className="text-muted small mt-1">{entry.remarks}</div>}
+          </ListGroup.Item>
+        ))}
+      </ListGroup>
     )}
   </Modal.Body>
   <Modal.Footer>

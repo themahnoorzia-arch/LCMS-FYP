@@ -292,13 +292,13 @@ def create_evidence_for_lawyer():
         cur.execute(
             """SELECT c.caseid FROM cases c JOIN caselawyeraccess cla ON cla.caseid=c.caseid
                JOIN lawyer l ON l.lawyerid=cla.lawyerid
-               WHERE l.userid=%s AND LOWER(c.title)=LOWER(%s)
-                 AND LOWER(cla.status) = 'approved' LIMIT 2""",
+               WHERE l.userid=%s AND LOWER(TRIM(c.title))=LOWER(%s)
+                 AND LOWER(cla.status) = 'approved' AND LOWER(c.status) != 'closed' LIMIT 2""",
             (current_user.userid, case_name),
         )
         rows = cur.fetchall()
         if not rows:
-            return jsonify({"message": "Case not found or not assigned to you"}), 404
+            return jsonify({"message": "Case not found, not assigned to you, or closed"}), 404
         if len(rows) > 1:
             return jsonify({"message": "More than one assigned case has that name"}), 409
         case_id = rows[0]["caseid"]
@@ -340,11 +340,13 @@ def update_evidence_for_lawyer(evidence_id):
         cur.execute(
             """SELECT 1 FROM evidence e JOIN caselawyeraccess cla ON cla.caseid=e.caseid
                JOIN lawyer l ON l.lawyerid=cla.lawyerid
-               WHERE e.evidenceid=%s AND l.userid=%s""",
+               JOIN cases c ON c.caseid=e.caseid
+               WHERE e.evidenceid=%s AND l.userid=%s AND LOWER(cla.status) = 'approved'
+                 AND LOWER(c.status) != 'closed'""",
             (evidence_id, current_user.userid),
         )
         if not cur.fetchone():
-            return jsonify({"message": "Evidence not found or not assigned to you"}), 404
+            return jsonify({"message": "Evidence not found, not assigned to you, or case is closed"}), 404
         cur.execute(
             "UPDATE evidence SET evidencetype=%s, description=%s, submitteddate=%s WHERE evidenceid=%s",
             (evidence_type, description, submitted_date, evidence_id),
@@ -381,13 +383,13 @@ def create_witness_for_lawyer():
         cur.execute(
             """SELECT c.caseid FROM cases c JOIN caselawyeraccess cla ON cla.caseid=c.caseid
                JOIN lawyer l ON l.lawyerid=cla.lawyerid
-               WHERE l.userid=%s AND LOWER(c.title)=LOWER(%s)
-                 AND LOWER(cla.status) = 'approved' LIMIT 2""",
+               WHERE l.userid=%s AND LOWER(TRIM(c.title))=LOWER(%s)
+                 AND LOWER(cla.status) = 'approved' AND LOWER(c.status) != 'closed' LIMIT 2""",
             (current_user.userid, data["casename"].strip()),
         )
         rows = cur.fetchall()
         if not rows:
-            return jsonify({"message": "Case not found or not assigned to you"}), 404
+            return jsonify({"message": "Case not found, not assigned to you, or closed"}), 404
         case_id = rows[0]["caseid"]
         normalized_cnic = str(data["cnic"]).strip()
         cur.execute(
@@ -446,11 +448,13 @@ def update_witness_for_lawyer(witness_id, case_id):
         cur.execute(
             """SELECT 1 FROM witnesscase wc JOIN caselawyeraccess cla ON cla.caseid=wc.caseid
                JOIN lawyer l ON l.lawyerid=cla.lawyerid
-               WHERE wc.witnessid=%s AND wc.caseid=%s AND l.userid=%s""",
+               JOIN cases c ON c.caseid=wc.caseid
+               WHERE wc.witnessid=%s AND wc.caseid=%s AND l.userid=%s AND LOWER(cla.status) = 'approved'
+                 AND LOWER(c.status) != 'closed'""",
             (witness_id, case_id, current_user.userid),
         )
         if not cur.fetchone():
-            return jsonify({"message": "Witness record not found or not assigned to you"}), 404
+            return jsonify({"message": "Witness record not found, not assigned to you, or case is closed"}), 404
         cur.execute(
             """UPDATE witnesses SET firstname=%s, lastname=%s, cnic=%s, phone=%s,
                email=%s, address=%s, pasthistory=%s WHERE witnessid=%s""",

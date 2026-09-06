@@ -37,6 +37,7 @@ def create_app():
         static_folder=None,
     )
 
+    Config.validate_config()
     app.config.from_object(Config)
 
     register_extensions(app)
@@ -95,5 +96,5 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=5000,
-        debug=True
+        debug=os.getenv("FLASK_DEBUG") == "1"
     )

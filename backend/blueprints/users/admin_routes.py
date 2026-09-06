@@ -134,6 +134,45 @@ def admin_delete_user(user_id):
         user = cur.fetchone()
         if not user:
             return jsonify({"error": "User not found"}), 404
+
+        # Deleting a Judge/Lawyer cascades away their judgeaccess/
+        # caselawyeraccess rows, silently leaving any still-open case
+        # without a judge or without counsel on that side — same risk the
+        # "block judge removal from a court with active cases" check
+        # guards against, just reached through a different path.
+        if user["role"] == "Judge":
+            cur.execute(
+                """
+                SELECT c.title FROM judgeaccess ja
+                JOIN judge j ON j.judgeid = ja.judgeid
+                JOIN cases c ON c.caseid = ja.caseid
+                WHERE j.userid = %s AND LOWER(c.status) != 'closed'
+                """,
+                (user_id,),
+            )
+            active = [r["title"] for r in cur.fetchall()]
+            if active:
+                return jsonify({
+                    "error": f"This judge still has {len(active)} active case(s) "
+                             f"({', '.join(active)}) — reassign them to another judge before deleting this account."
+                }), 409
+        elif user["role"] == "Lawyer":
+            cur.execute(
+                """
+                SELECT c.title FROM caselawyeraccess cla
+                JOIN lawyer l ON l.lawyerid = cla.lawyerid
+                JOIN cases c ON c.caseid = cla.caseid
+                WHERE l.userid = %s AND LOWER(cla.status) = 'approved' AND LOWER(c.status) != 'closed'
+                """,
+                (user_id,),
+            )
+            active = [r["title"] for r in cur.fetchall()]
+            if active:
+                return jsonify({
+                    "error": f"This lawyer still represents a party on {len(active)} active case(s) "
+                             f"({', '.join(active)}) — reassign counsel before deleting this account."
+                }), 409
+
         cur.execute("DELETE FROM users WHERE userid = %s", (user_id,))
         conn.commit()
 
@@ -240,6 +279,13 @@ def admin_delete_court(court_id):
         cur.execute("SELECT 1 FROM courtregistrar WHERE courtid = %s", (court_id,))
         if cur.fetchone():
             return jsonify({"error": "This court has a registrar assigned — unassign it first."}), 409
+
+        cur.execute("SELECT COUNT(*) AS n FROM courtaccess WHERE courtid = %s", (court_id,))
+        case_count = cur.fetchone()["n"]
+        if case_count:
+            return jsonify({
+                "error": f"This court still has {case_count} case(s) attached — reassign or close them first."
+            }), 409
 
         cur.execute("DELETE FROM court WHERE courtid = %s RETURNING courtname", (court_id,))
         deleted = cur.fetchone()

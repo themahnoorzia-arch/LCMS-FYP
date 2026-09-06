@@ -132,21 +132,29 @@ const Evidence = () => {
               </tr>
             </thead>
             <tbody>
-              {evidence.map((e) => (
-                <tr key={e.id}>
-                  <td>{e.evidenceType}</td>
-                  <td>{e.description}</td>
-                  <td>{e.submissionDate}</td>
-                  <td>{e.caseName}</td>
-                  <td>
-                    <Button size="sm" variant="primary" className="me-1" onClick={() => {
-                      setEditing(e); setForm({ evidenceType: e.evidenceType, description: e.description, submissionDate: e.submissionDate, caseName: e.caseName }); setShow(true);
-                    }}>Edit</Button>
-                    <Button size="sm" variant="info" className="me-1" onClick={() => setSelected(e)}>View</Button>
-                    <Button size="sm" variant="secondary" onClick={() => downloadRecord(`evidence-${e.id}.txt`, e)}>Download</Button>
+              {evidence.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="text-center text-muted py-4">
+                    No evidence found.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                evidence.map((e) => (
+                  <tr key={e.id}>
+                    <td>{e.evidenceType}</td>
+                    <td>{e.description}</td>
+                    <td>{e.submissionDate}</td>
+                    <td>{e.caseName}</td>
+                    <td>
+                      <Button size="sm" variant="primary" className="me-1" onClick={() => {
+                        setEditing(e); setForm({ evidenceType: e.evidenceType, description: e.description, submissionDate: e.submissionDate, caseName: e.caseName }); setShow(true);
+                      }}>Edit</Button>
+                      <Button size="sm" variant="info" className="me-1" onClick={() => setSelected(e)}>View</Button>
+                      <Button size="sm" variant="secondary" onClick={() => downloadRecord(`evidence-${e.id}.txt`, e)}>Download</Button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </Table>
         </Card.Body>

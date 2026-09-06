@@ -4,6 +4,24 @@ import { ArrowLeft, Upload } from 'lucide-react';
 
 const PROFILE_IMAGE_KEY = 'clientProfileImage';
 
+const onlyDigits = (value) => (value || '').replace(/\D/g, '');
+const isEmailValid = (email) => /\S+@\S+\.\S+/.test(email || '');
+const isCnicValid = (value) => onlyDigits(value).length === 13;
+const isPhoneValid = (value) => {
+  const digits = onlyDigits(value);
+  return digits.length === 11 && digits.startsWith('03');
+};
+const isAdultDob = (value) => {
+  const dob = new Date(value);
+  const today = new Date();
+  if (Number.isNaN(dob.getTime())) return false;
+  if (dob > today) return false;
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDiff = today.getMonth() - dob.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) age--;
+  return age >= 18;
+};
+
 const initialProfile = {
   firstname: '',
   lastname: '',
@@ -34,6 +52,7 @@ function ClientProfile({ onBack }) {
   const fetchClientProfile = async () => {
     const res = await fetch('/api/clientprofile', {
       method: 'GET',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${localStorage.getItem('userToken')}`,
@@ -47,6 +66,7 @@ function ClientProfile({ onBack }) {
   const updateClientProfile = async (data) => {
     const res = await fetch('/api/clientprofile', {
       method: 'PUT',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${localStorage.getItem('userToken')}`,
@@ -89,7 +109,16 @@ function ClientProfile({ onBack }) {
   }, []);
 
   const handleChange = (e) => {
-    setProfile({ ...profile, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    if (name === 'phoneno') {
+      setProfile({ ...profile, phoneno: onlyDigits(value).slice(0, 11) });
+      return;
+    }
+    if (name === 'cnic') {
+      setProfile({ ...profile, cnic: value.replace(/[^0-9-]/g, '') });
+      return;
+    }
+    setProfile({ ...profile, [name]: value });
   };
 
   const handleImageChange = (e) => {
@@ -116,6 +145,22 @@ function ClientProfile({ onBack }) {
 
   const handleSave = async (e) => {
     e.preventDefault();
+    if (profile.email && !isEmailValid(profile.email)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    if (profile.phoneno && !isPhoneValid(profile.phoneno)) {
+      setError('Phone number must be a valid 11-digit Pakistani mobile number (e.g. 03XXXXXXXXX).');
+      return;
+    }
+    if (profile.cnic && !isCnicValid(profile.cnic)) {
+      setError('CNIC must be exactly 13 digits (e.g. 12345-1234567-1).');
+      return;
+    }
+    if (profile.dob && !isAdultDob(profile.dob)) {
+      setError('You must be at least 18 years old, and the date of birth cannot be in the future.');
+      return;
+    }
     setLoading(true);
     try {
       // Call the API to update the profile

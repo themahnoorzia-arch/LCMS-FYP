@@ -7,33 +7,28 @@ from flask_login import login_required, current_user
 import psycopg2.extras
 
 from blueprints.cases import cases_bp
-from db.db import SessionLocal, get_pg_connection
-
-from models import (
-    Cases,
-    Casehistory,
-    Finaldecision,
-    Judge,
-    Lawyer,
-    Users,
-)
+from blueprints.cases.case_routes import build_case_timeline_events
+from db.db import get_pg_connection
 
 
 @cases_bp.route("/cases/history", methods=["GET"])
 @login_required
 def get_all_case_history():
     """
-    Return all case history entries enriched with case metadata.
-    Used by the Manage Case History page in the registrar dashboard.
-    Each row includes case name, case number, judge, client, lawyer, status.
+    Return the full derived+manual event timeline (case filed, judge
+    assigned, evidence/witnesses added, hearings, final decision, plus any
+    manual notes) across every case in the registrar's court, newest first.
+    Used by the Case History page in the registrar dashboard. Reuses the
+    same event-building logic as the per-case history endpoint so the two
+    views never drift apart.
     """
+    if current_user.role not in ('CourtRegistrar', 'Admin'):
+        return jsonify({"error": "Court registrar access required"}), 403
+
     conn = None
     try:
         conn = get_pg_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-        if current_user.role not in ('CourtRegistrar', 'Admin'):
-            return jsonify({"error": "Court registrar access required"}), 403
 
         court_id = None
         if current_user.role == 'CourtRegistrar':
@@ -46,69 +41,21 @@ def get_all_case_history():
                 return jsonify({"history": []}), 200
             court_id = registrar['courtid']
 
-        cur.execute(
-            """
-            SELECT
-                ch.historyid,
-                ch.actiondate,
-                ch.actiontaken,
-                ch.remarks,
-                c.caseid,
-                c.title      AS casename,
-                c.casenumber,
-                c.status,
-                (
-                    SELECT TRIM(u.firstname || ' ' || u.lastname)
-                    FROM judgeaccess ja
-                    JOIN judge j ON j.judgeid = ja.judgeid
-                    JOIN users u ON u.userid  = j.userid
-                    WHERE ja.caseid = c.caseid LIMIT 1
-                ) AS judgename,
-                (
-                    SELECT TRIM(u.firstname || ' ' || u.lastname)
-                    FROM caseparticipantaccess cpa
-                    JOIN caseparticipant cp ON cp.participantid = cpa.participantid
-                    JOIN users u            ON u.userid         = cp.userid
-                    WHERE cpa.caseid = c.caseid LIMIT 1
-                ) AS clientname,
-                (
-                    SELECT TRIM(u.firstname || ' ' || u.lastname)
-                    FROM caselawyeraccess cla
-                    JOIN lawyer lw ON lw.lawyerid = cla.lawyerid
-                    JOIN users u   ON u.userid    = lw.userid
-                    WHERE cla.caseid = c.caseid LIMIT 1
-                ) AS lawyername
-            FROM casehistory ch
-            JOIN cases c ON c.caseid = ch.caseid
-            WHERE (%s IS NULL OR EXISTS (
-                SELECT 1 FROM courtaccess ca
-                WHERE ca.caseid = c.caseid AND ca.courtid = %s
-            ))
-            ORDER BY ch.actiondate DESC NULLS LAST, ch.historyid DESC
-            """,
-            (court_id, court_id),
-        )
+        if court_id is not None:
+            cur.execute("SELECT caseid FROM courtaccess WHERE courtid = %s", (court_id,))
+        else:
+            cur.execute("SELECT caseid FROM cases")
+        case_ids = [r['caseid'] for r in cur.fetchall()]
 
-        rows = cur.fetchall()
-        result = [
-            {
-                "historyid":   r["historyid"],
-                "caseid":      r["caseid"],
-                "caseName":    r["casename"],
-                "casenumber":  r["casenumber"] or "—",
-                "judgeName":   r["judgename"]  or "—",
-                "clientName":  r["clientname"] or "—",
-                "lawyerName":  r["lawyername"] or "—",
-                "actionDate":  r["actiondate"].isoformat() if r["actiondate"] else None,
-                "actionTaken": r["actiontaken"],
-                "remarks":     r["remarks"] or "",
-                "status":      r["status"],
-                "eventType":   "manual",
-            }
-            for r in rows
-        ]
+        all_events = []
+        for case_id in case_ids:
+            events = build_case_timeline_events(cur, case_id)
+            if events:
+                all_events.extend(events)
 
-        return jsonify({"history": result}), 200
+        all_events.sort(key=lambda e: e["actionDate"] or "0000-00-00", reverse=True)
+
+        return jsonify({"history": all_events}), 200
 
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

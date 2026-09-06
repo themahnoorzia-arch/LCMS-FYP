@@ -5,6 +5,7 @@ const RegistrarHearingSchedule = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingHearing, setEditingHearing] = useState(null);
   const [hearings, setHearings] = useState([]);
+  const [courtRooms, setCourtRooms] = useState([]);
 
   useEffect(() => {
     const fetchHearings = async () => {
@@ -17,6 +18,25 @@ const RegistrarHearingSchedule = () => {
       }
     };
     fetchHearings();
+
+    // Fetch the registrar's own court, then its rooms, so Venue can be
+    // picked from the real available courtrooms instead of typed freely.
+    const fetchCourtRooms = async () => {
+      try {
+        const courtRes = await fetch('/api/court', { credentials: 'include' });
+        if (!courtRes.ok) return;
+        const courtData = await courtRes.json();
+        const courtId = courtData?.data?.id;
+        if (!courtId) return;
+        const roomsRes = await fetch(`/api/courtrooms/${courtId}`, { credentials: 'include' });
+        if (!roomsRes.ok) return;
+        const roomsData = await roomsRes.json();
+        setCourtRooms(roomsData.data || roomsData.rooms || roomsData || []);
+      } catch (error) {
+        console.error('Error fetching court rooms:', error);
+      }
+    };
+    fetchCourtRooms();
   }, []);
 
   const [hearingForm, setHearingForm] = useState({
@@ -205,13 +225,27 @@ const RegistrarHearingSchedule = () => {
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Venue</Form.Label>
-              <Form.Control
-                type="text"
+              <Form.Select
                 value={hearingForm.venue}
                 onChange={(e) => setHearingForm({ ...hearingForm, venue: e.target.value })}
                 required
                 autoFocus
-              />
+              >
+                <option value="">Select a courtroom</option>
+                {courtRooms.map(room => (
+                  <option key={room.id} value={`Courtroom ${room.number}`}>
+                    Courtroom {room.number} (Capacity: {room.capacity}, {room.status})
+                  </option>
+                ))}
+                {hearingForm.venue && !courtRooms.some(room => `Courtroom ${room.number}` === hearingForm.venue) && (
+                  <option value={hearingForm.venue}>{hearingForm.venue} (current)</option>
+                )}
+              </Form.Select>
+              {courtRooms.length === 0 && (
+                <Form.Text className="text-muted">
+                  No courtrooms found for your court yet — add one on the Court Rooms page first.
+                </Form.Text>
+              )}
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Judge</Form.Label>
