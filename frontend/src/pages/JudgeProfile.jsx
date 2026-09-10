@@ -29,10 +29,9 @@ const JudgeProfile = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const [profileData, setProfileData] = useState({
+  const emptyProfile = {
     firstName: '',
     lastName: '',
-    name: '',
     email: '',
     phone: '',
     specialization: '',
@@ -40,7 +39,10 @@ const JudgeProfile = () => {
     dob: '',
     position: '',
     experience: '',
-  });
+  };
+
+  const [profileData, setProfileData] = useState(emptyProfile);
+  const [originalProfile, setOriginalProfile] = useState(emptyProfile);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -55,18 +57,19 @@ const JudgeProfile = () => {
         if (!res.ok || !result.success) throw new Error(result.message || 'Failed to load profile');
 
         const data = result.data;
-        setProfileData({
+        const mapped = {
           firstName: data.firstName || '',
           lastName: data.lastName || '',
-          name: data.firstName + " " + data.lastName|| '',
           email: data.email || '',
           phone: data.phone || '',
           specialization: data.specialization || '',
           cnic: data.cnic || '',
           dob: data.dob || '',
           position: data.position || '',
-          experience: data.experience || '',
-        });
+          experience: data.expyears ?? '',
+        };
+        setProfileData(mapped);
+        setOriginalProfile(mapped);
       } catch (err) {
         setError(err.message || 'Failed to load profile. Please try again.');
       } finally {
@@ -77,7 +80,12 @@ const JudgeProfile = () => {
     fetchProfile();
   }, []);
 
-  const handleEdit = () => setIsEditing(!isEditing);
+  const handleEdit = () => setIsEditing(true);
+
+  const handleCancel = () => {
+    setProfileData(originalProfile);
+    setIsEditing(false);
+  };
 
   const handleSave = async () => {
     if (profileData.email && !isEmailValid(profileData.email)) {
@@ -107,6 +115,7 @@ const JudgeProfile = () => {
       const result = await res.json();
       if (!res.ok || !result.success) throw new Error(result.message || 'Failed to update profile');
 
+      setOriginalProfile(profileData);
       setIsEditing(false);
     } catch (err) {
       alert(err.message);
@@ -204,7 +213,7 @@ const JudgeProfile = () => {
                   textFillColor: 'transparent',
                   fontSize: '1.3rem',
                 }}>
-                  {profileData.name || `${profileData.firstName} ${profileData.lastName}`}
+                  {`${profileData.firstName} ${profileData.lastName}`.trim()}
                 </h4>
                 <p className="text-muted mb-2" style={{ fontSize: '0.97rem' }}>{profileData.specialization}</p>
                 <div className="d-flex justify-content-center gap-2 mb-2">
@@ -266,23 +275,35 @@ const JudgeProfile = () => {
               <Card.Body>
                 <div className="d-flex justify-content-between align-items-center mb-3">
                   <h5 className="mb-0 fw-bold gradient-text" style={{ color: '#22304a', fontSize: '1.1rem', background: 'linear-gradient(90deg, #22304a 0%, #1ec6b6 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', textFillColor: 'transparent' }}>Professional Information</h5>
-                  <Button
-                    variant={isEditing ? 'success' : 'outline-primary'}
-                    size="sm"
-                    onClick={isEditing ? handleSave : handleEdit}
-                    style={{
-                      background: isEditing ? 'linear-gradient(90deg, #22304a 0%, #1ec6b6 100%)' : 'transparent',
-                      borderColor: '#1ec6b6',
-                      color: isEditing ? 'white' : '#1ec6b6',
-                      borderRadius: '0.75rem',
-                      fontWeight: '600',
-                      boxShadow: isEditing ? '0 4px 12px rgba(30,198,182,0.15)' : 'none',
-                      fontSize: '0.97rem',
-                      padding: '0.3rem 0.7rem'
-                    }}
-                  >
-                    {isEditing ? 'Save Changes' : 'Edit Profile'}
-                  </Button>
+                  <div className="d-flex gap-2">
+                    {isEditing && (
+                      <Button
+                        variant="outline-secondary"
+                        size="sm"
+                        onClick={handleCancel}
+                        style={{ borderRadius: '0.75rem', fontWeight: '600', fontSize: '0.97rem', padding: '0.3rem 0.7rem' }}
+                      >
+                        Cancel
+                      </Button>
+                    )}
+                    <Button
+                      variant={isEditing ? 'success' : 'outline-primary'}
+                      size="sm"
+                      onClick={isEditing ? handleSave : handleEdit}
+                      style={{
+                        background: isEditing ? 'linear-gradient(90deg, #22304a 0%, #1ec6b6 100%)' : 'transparent',
+                        borderColor: '#1ec6b6',
+                        color: isEditing ? 'white' : '#1ec6b6',
+                        borderRadius: '0.75rem',
+                        fontWeight: '600',
+                        boxShadow: isEditing ? '0 4px 12px rgba(30,198,182,0.15)' : 'none',
+                        fontSize: '0.97rem',
+                        padding: '0.3rem 0.7rem'
+                      }}
+                    >
+                      {isEditing ? 'Save Changes' : 'Edit Profile'}
+                    </Button>
+                  </div>
                 </div>
                 <Form>
                   <Row className="g-2">
@@ -314,25 +335,6 @@ const JudgeProfile = () => {
                           disabled={!isEditing}
                           onChange={(e) =>
                             setProfileData({ ...profileData, lastName: e.target.value })
-                          }
-                          style={{ 
-                            borderRadius: '0.75rem',
-                            padding: '0.5rem 0.75rem',
-                            border: '1px solid rgba(30,198,182,0.2)',
-                            fontSize: '0.97rem'
-                          }}
-                        />
-                      </Form.Group>
-                    </Col>
-                    <Col md={6}>
-                      <Form.Group>
-                        <Form.Label className="fw-bold" style={{ fontSize: '0.97rem' }}>Full Name</Form.Label>
-                        <Form.Control
-                          type="text"
-                          value={profileData.name}
-                          disabled={!isEditing}
-                          onChange={(e) =>
-                            setProfileData({ ...profileData, name: e.target.value })
                           }
                           style={{ 
                             borderRadius: '0.75rem',

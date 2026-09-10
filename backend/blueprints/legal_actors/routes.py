@@ -590,29 +590,41 @@ def create_prosecutor():
             return jsonify({"error": "Registrar profile or court not found"}), 404
         court_id = reg_row["courtid"]
 
+        # Idempotency guard against double-click / double-submit: a
+        # prosecutor with this exact name, experience and court already on
+        # file is almost certainly a resubmission, not a genuinely distinct
+        # new person.
         cur.execute(
-            """
-            INSERT INTO prosecutor
-            (
-                name,
-                experience,
-                status,
-                courtid
-            )
-            VALUES (%s,%s,%s,%s)
-            RETURNING prosecutorid
-            """,
-            (
-                name,
-                experience,
-                status,
-                court_id,
-            )
+            "SELECT prosecutorid FROM prosecutor WHERE name = %s AND experience = %s AND courtid = %s",
+            (name, experience, court_id),
         )
+        dup_row = cur.fetchone()
+        if dup_row:
+            prosecutor_id = dup_row["prosecutorid"]
+        else:
+            cur.execute(
+                """
+                INSERT INTO prosecutor
+                (
+                    name,
+                    experience,
+                    status,
+                    courtid
+                )
+                VALUES (%s,%s,%s,%s)
+                RETURNING prosecutorid
+                """,
+                (
+                    name,
+                    experience,
+                    status,
+                    court_id,
+                )
+            )
 
-        prosecutor_row = cur.fetchone()
+            prosecutor_row = cur.fetchone()
 
-        prosecutor_id = prosecutor_row["prosecutorid"]
+            prosecutor_id = prosecutor_row["prosecutorid"]
 
         if case_names:
 

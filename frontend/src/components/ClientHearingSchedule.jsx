@@ -5,14 +5,9 @@ import moment from 'moment';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './CalendarSummary.css';
 
-const getEventBadgeVariant = (type) => {
-  switch (type) {
-    case 'Court Date': return 'danger';
-    case 'Meeting': return 'primary';
-    case 'Deadline': return 'warning';
-    default: return 'info';
-  }
-};
+// Every hearing is mapped to type 'Court Date' below — no other event type
+// is currently produced, so this only needs the one real case.
+const getEventBadgeVariant = (type) => (type === 'Court Date' ? 'danger' : 'info');
 
 function ClientHearingSchedule() {
   const [currentDate, setCurrentDate] = useState(moment());

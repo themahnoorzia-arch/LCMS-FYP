@@ -170,6 +170,26 @@ def create_payment():
             lawyer_row = cur.fetchone()
             lawyer_id = lawyer_row["lawyerid"] if lawyer_row else None
 
+        # Idempotency guard against double-click / double-submit: if this
+        # exact still-pending request (same case, lawyer, purpose, amount,
+        # type) already exists, hand back that one instead of inserting a
+        # second one. Once it's confirmed or verified its status moves off
+        # 'Pending', so a genuine second request for the same thing later
+        # is never blocked by this.
+        cur.execute(
+            """
+            SELECT paymentid FROM payments
+            WHERE caseid = %s AND lawyerid IS NOT DISTINCT FROM %s
+              AND purpose = %s AND balance = %s AND paymenttype = %s
+              AND status = 'Pending'
+            ORDER BY paymentid DESC LIMIT 1
+            """,
+            (case_id, lawyer_id, purpose, Decimal(str(balance)), payment_type),
+        )
+        dup = cur.fetchone()
+        if dup:
+            return jsonify({"message": "Payment request created", "paymentid": dup["paymentid"]}), 201
+
         # This database schema does not generate payment IDs automatically.
         # Lock the table while allocating the next ID to avoid duplicate IDs.
         cur.execute("LOCK TABLE payments IN EXCLUSIVE MODE")

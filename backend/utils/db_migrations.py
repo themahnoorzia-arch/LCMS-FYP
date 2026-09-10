@@ -299,6 +299,109 @@ def ensure_payment_mode_nullable():
             conn.close()
 
 
+def ensure_unique_profile_userid():
+    """One role-profile row per user account. Without this, a double-click
+    (or a genuine race) on Complete Profile can create two Lawyer/Judge/
+    CourtRegistrar/CaseParticipant/Admin rows for the same userid — the
+    profile tables use their own surrogate id as primary key, so nothing
+    was stopping that. Safe to run repeatedly; if duplicate rows already
+    exist for some userid, the ALTER fails and is logged rather than
+    deleting anything — those would need manual cleanup first."""
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor()
+        for table, constraint in [
+            ("lawyer", "lawyer_userid_key"),
+            ("judge", "judge_userid_key"),
+            ("courtregistrar", "courtregistrar_userid_key"),
+            ("caseparticipant", "caseparticipant_userid_key"),
+            ("admin", "admin_userid_key"),
+        ]:
+            try:
+                cur.execute(
+                    f"ALTER TABLE {table} ADD CONSTRAINT {constraint} UNIQUE (userid)"
+                )
+                conn.commit()
+            except Exception as exc:
+                conn.rollback()
+                logger.warning(
+                    "ensure_unique_profile_userid: %s skipped (constraint may "
+                    "already exist, or duplicate rows already exist): %s",
+                    table, exc,
+                )
+    except Exception as exc:
+        logger.error("ensure_unique_profile_userid failed: %s", exc)
+    finally:
+        if conn:
+            conn.close()
+
+
+def ensure_unique_courtname():
+    """Court names are unique in the real world too — this also closes the
+    double-click gap on Admin's Add Court, which had no duplicate check at
+    all."""
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS court_courtname_lower_key "
+            "ON court (LOWER(courtname))"
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.error("ensure_unique_courtname failed: %s", exc)
+    finally:
+        if conn:
+            conn.close()
+
+
+def ensure_unique_courtroom_number():
+    """A courtroom number is unique within its own court — closes the
+    double-click gap on Add Court Room, which had an id-collision lock but
+    no check against inserting the same room number twice."""
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "ALTER TABLE courtroom ADD CONSTRAINT courtroom_courtid_no_key "
+            "UNIQUE (courtid, courtroomno)"
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.warning(
+            "ensure_unique_courtroom_number skipped (constraint may already "
+            "exist, or a duplicate room number already exists): %s", exc
+        )
+    finally:
+        if conn:
+            conn.close()
+
+
+def ensure_one_scheduled_hearing_per_case():
+    """DB-level backstop for the one-scheduled-hearing-per-case rule.
+    schedule_hearing() already checks this with a SELECT before inserting,
+    but that check alone has a race window — two near-simultaneous requests
+    can both pass it before either commits. A partial unique index closes
+    that window at the database level regardless of timing."""
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS hearings_one_scheduled_per_case "
+            "ON hearings (caseid) WHERE hearingstatus = 'scheduled'"
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.error("ensure_one_scheduled_hearing_per_case failed: %s", exc)
+    finally:
+        if conn:
+            conn.close()
+
+
 def run_all():
     remove_documents_module()
     remove_appeals_module()
@@ -313,3 +416,7 @@ def run_all():
     ensure_prosecutor_court()
     fix_fk_ondelete_rules()
     ensure_payment_mode_nullable()
+    ensure_unique_profile_userid()
+    ensure_unique_courtname()
+    ensure_unique_courtroom_number()
+    ensure_one_scheduled_hearing_per_case()

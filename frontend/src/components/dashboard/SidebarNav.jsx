@@ -1,12 +1,13 @@
 import React from 'react';
 import { ListGroup } from 'react-bootstrap';
-import { Briefcase, Calendar3, CreditCard2Front } from 'react-bootstrap-icons';
+import { Briefcase, Calendar3, CreditCard2Front, FileEarmarkText, People } from 'react-bootstrap-icons';
 
 const navItems = [
   { view: 'cases', label: 'My Cases', icon: <Briefcase className="me-2" /> },
   { view: 'calendar', label: 'Calendar', icon: <Calendar3 className="me-2" /> },
   { view: 'billing', label: 'Billing', icon: <CreditCard2Front className="me-2" /> },
-  // { view: 'profile', label: 'Profile', icon: <Person className="me-2" /> }, // Optional
+  { view: 'evidence', label: 'Evidence', icon: <FileEarmarkText className="me-2" /> },
+  { view: 'witnesses', label: 'Witnesses', icon: <People className="me-2" /> },
 ];
 
 const SidebarNav = ({ activeView, onViewChange, className = '' }) => {
@@ -72,80 +73,6 @@ const SidebarNav = ({ activeView, onViewChange, className = '' }) => {
             <span style={{ fontSize: 14 }}>{item.label}</span>
           </ListGroup.Item>
         ))}
-        <ListGroup.Item
-          action
-          onClick={() => onViewChange('evidence')}
-          active={activeView === 'evidence'}
-          className={`d-flex align-items-center sidebar-link px-3 py-2 border-0 rounded-2 ${
-            activeView === 'evidence'
-              ? 'bg-white text-primary fw-bold shadow-sm'
-              : 'text-white'
-          }`}
-          style={{
-            background: activeView === 'evidence' ? '#fff' : 'transparent',
-            color: activeView === 'evidence' ? '#1ec6b6' : '#fff',
-            fontWeight: activeView === 'evidence' ? 700 : 500,
-            fontSize: 15,
-            borderLeft: activeView === 'evidence' ? '4px solid #1ec6b6' : '4px solid transparent',
-            marginBottom: 2,
-            transition: 'all 0.18s',
-            boxShadow: activeView === 'evidence' ? '0 2px 8px rgba(30,198,182,0.08)' : 'none',
-            cursor: 'pointer',
-          }}
-          onMouseEnter={e => {
-            if (!activeView || activeView !== 'evidence') {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.18)';
-              e.currentTarget.style.color = '#1ec6b6';
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(30,198,182,0.12)';
-            }
-          }}
-          onMouseLeave={e => {
-            if (!activeView || activeView !== 'evidence') {
-              e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = '#fff';
-              e.currentTarget.style.boxShadow = 'none';
-            }
-          }}
-        >
-          Evidence
-        </ListGroup.Item>
-        <ListGroup.Item
-          action
-          onClick={() => onViewChange('witnesses')}
-          active={activeView === 'witnesses'}
-          className={`d-flex align-items-center sidebar-link px-3 py-2 border-0 rounded-2 ${
-            activeView === 'witnesses'
-              ? 'bg-white text-primary fw-bold shadow-sm'
-              : 'text-white'
-          }`}
-          style={{
-            background: activeView === 'witnesses' ? '#fff' : 'transparent',
-            color: activeView === 'witnesses' ? '#1ec6b6' : '#fff',
-            fontWeight: activeView === 'witnesses' ? 700 : 500,
-            fontSize: 15,
-            borderLeft: activeView === 'witnesses' ? '4px solid #1ec6b6' : '4px solid transparent',
-            marginBottom: 2,
-            transition: 'all 0.18s',
-            boxShadow: activeView === 'witnesses' ? '0 2px 8px rgba(30,198,182,0.08)' : 'none',
-            cursor: 'pointer',
-          }}
-          onMouseEnter={e => {
-            if (!activeView || activeView !== 'witnesses') {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.18)';
-              e.currentTarget.style.color = '#1ec6b6';
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(30,198,182,0.12)';
-            }
-          }}
-          onMouseLeave={e => {
-            if (!activeView || activeView !== 'witnesses') {
-              e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = '#fff';
-              e.currentTarget.style.boxShadow = 'none';
-            }
-          }}
-        >
-          Witnesses
-        </ListGroup.Item>
       </ListGroup>
     </div>
   );

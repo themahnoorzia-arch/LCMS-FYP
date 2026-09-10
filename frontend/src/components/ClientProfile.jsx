@@ -1,8 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Card, Row, Col, Form, Button, Image, Spinner, Alert } from 'react-bootstrap';
-import { ArrowLeft, Upload } from 'lucide-react';
-
-const PROFILE_IMAGE_KEY = 'clientProfileImage';
+import React, { useState, useEffect } from 'react';
+import { Card, Row, Col, Form, Button, Spinner, Alert } from 'react-bootstrap';
+import { ArrowLeft } from 'lucide-react';
 
 const onlyDigits = (value) => (value || '').replace(/\D/g, '');
 const isEmailValid = (email) => /\S+@\S+\.\S+/.test(email || '');
@@ -32,31 +30,29 @@ const initialProfile = {
   address: '',
 };
 
-function ClientProfile({ onBack }) {
-  const [profile, setProfile] = useState({
-  firstname: '',
-  lastname: '',
-  dob: '',
-  email: '',
-  phoneno: '',
-  cnic: '',
-  address: '',
+const toProfileShape = (data) => ({
+  firstname: data.firstName,
+  lastname: data.lastName,
+  dob: data.dob,
+  email: data.email,
+  phoneno: data.phone,
+  cnic: data.cnic,
+  address: data.address,
 });
+
+function ClientProfile({ onBack }) {
+  const [profile, setProfile] = useState(initialProfile);
+  const [originalProfile, setOriginalProfile] = useState(initialProfile);
   const [isEditing, setIsEditing] = useState(false);
-  const [profileImage, setProfileImage] = useState(localStorage.getItem(PROFILE_IMAGE_KEY) || 'https://placehold.co/150');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const fileInputRef = useRef();
 
   // API Calls
   const fetchClientProfile = async () => {
     const res = await fetch('/api/clientprofile', {
       method: 'GET',
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('userToken')}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
     });
     const result = await res.json();
     if (!res.ok || !result.success) throw new Error(result.message || 'Failed to load profile');
@@ -67,10 +63,7 @@ function ClientProfile({ onBack }) {
     const res = await fetch('/api/clientprofile', {
       method: 'PUT',
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('userToken')}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
     const result = await res.json();
@@ -80,24 +73,13 @@ function ClientProfile({ onBack }) {
 
   // Fetch profile on mount
   useEffect(() => {
-    const storedImage = localStorage.getItem(PROFILE_IMAGE_KEY);
-    if (storedImage) setProfileImage(storedImage);
-
     const loadProfile = async () => {
       setLoading(true);
       try {
         const data = await fetchClientProfile();
-        console.log("Fetched Profile Data: ", data); // Debugging line to check data
-        setProfile({
-          firstname: data.firstName,
-          lastname: data.lastName,
-          dob: data.dob,
-          email: data.email,
-          phoneno: data.phone,
-          cnic: data.cnic,
-          address: data.address,
-        });
-        localStorage.setItem('clientProfile', JSON.stringify(data));
+        const mapped = toProfileShape(data);
+        setProfile(mapped);
+        setOriginalProfile(mapped);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -121,16 +103,6 @@ function ClientProfile({ onBack }) {
     setProfile({ ...profile, [name]: value });
   };
 
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setProfileImage(url);
-      localStorage.setItem(PROFILE_IMAGE_KEY, url);
-      // Optionally: upload image to backend
-    }
-  };
-
   const handleEdit = () => {
     setIsEditing(true);
     setError(null);
@@ -139,8 +111,7 @@ function ClientProfile({ onBack }) {
   const handleCancel = () => {
     setIsEditing(false);
     setError(null);
-    const stored = localStorage.getItem('clientProfile');
-    if (stored) setProfile(JSON.parse(stored));
+    setProfile(originalProfile);
   };
 
   const handleSave = async (e) => {
@@ -163,10 +134,11 @@ function ClientProfile({ onBack }) {
     }
     setLoading(true);
     try {
-      // Call the API to update the profile
-      const updatedProfile = await updateClientProfile(profile);
+      const updated = await updateClientProfile(profile);
+      const mapped = updated.data ? toProfileShape(updated.data) : profile;
+      setProfile(mapped);
+      setOriginalProfile(mapped);
       setIsEditing(false);
-      localStorage.setItem('clientProfile', JSON.stringify(updatedProfile.data));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -189,33 +161,6 @@ function ClientProfile({ onBack }) {
         <Card className="shadow-sm rounded-4 p-4">
           <Card.Body>
             <div className="d-flex flex-column align-items-center mb-4">
-              <div className="position-relative mb-2">
-                <Image
-                  src={profileImage}
-                  roundedCircle
-                  width={120}
-                  height={120}
-                  style={{ objectFit: 'cover', border: '3px solid #e0e7ef' }}
-                  alt="Profile"
-                />
-                {isEditing && (
-                  <Button
-                    variant="light"
-                    className="position-absolute bottom-0 end-0 p-2 border"
-                    style={{ borderRadius: '50%' }}
-                    onClick={() => fileInputRef.current.click()}
-                  >
-                    <Upload size={18} />
-                  </Button>
-                )}
-                <Form.Control
-                  type="file"
-                  accept="image/*"
-                  ref={fileInputRef}
-                  style={{ display: 'none' }}
-                  onChange={handleImageChange}
-                />
-              </div>
               <h5 className="mb-0">{profile.firstname} {profile.lastname}</h5>
               <div className="text-muted small">{profile.email}</div>
             </div>

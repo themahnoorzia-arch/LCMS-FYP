@@ -64,11 +64,7 @@ const RegistrarDashboard = () => {
   const [loadingAvailableJudges, setLoadingAvailableJudges] = useState(false);
   const [assignJudgeId, setAssignJudgeId] = useState('');
 
-  const [courtProsecutors, setCourtProsecutors] = useState([
-    { id: 1, name: 'Alex Mason', experience: 5, status: 'Active', assignedCases: ['State v. Smith'] },
-    { id: 2, name: 'Sam Fisher', experience: 3, status: 'Active', assignedCases: ['People v. Doe'] },
-    { id: 3, name: 'Lara Croft', experience: 7, status: 'Active', assignedCases: [] },
-  ]);
+  const [courtProsecutors, setCourtProsecutors] = useState([]);
   const [searchProsecutor, setSearchProsecutor] = useState('');
   const [courtPayments, setCourtPayments] = useState([
   ]);
@@ -335,50 +331,6 @@ useEffect(() => {
     lawyerName: '',
     prosecutor: ''
   });
-  const [cases, setCases] = useState([
-    {
-      id: 1,
-      title: 'State v. Smith',
-      description: 'Criminal case involving theft',
-      caseType: 'Criminal',
-      filingDate: '2024-01-15',
-      status: 'Open',
-      decisionDate: '',
-      decisionSummary: '',
-      verdict: '',
-      lawyerName: 'Adeel Khan',
-      clientName: 'John Smith',
-      judgeName: 'Judge Judy',
-    },
-    {
-      id: 2,
-      title: 'People v. Doe',
-      description: 'Civil case regarding property dispute',
-      caseType: 'Civil',
-      filingDate: '2024-02-01',
-      status: 'Pending',
-      decisionDate: '',
-      decisionSummary: '',
-      verdict: '',
-      lawyerName: 'Sara Malik',
-      clientName: 'Jane Doe',
-      judgeName: 'Judge Dredd',
-    },
-    {
-      id: 3,
-      title: 'Acme Corp v. Beta',
-      description: 'Corporate case about contract breach',
-      caseType: 'Corporate',
-      filingDate: '2024-01-20',
-      status: 'Closed',
-      decisionDate: '2024-03-15',
-      decisionSummary: 'The court found in favor of the plaintiff based on the evidence presented.',
-      verdict: 'Plaintiff wins',
-      lawyerName: 'Bilal Ahmed',
-      clientName: 'Acme Corp',
-      judgeName: 'Judge Amy',
-    }
-  ]);
 useEffect(() => {
   setLoadingCourts(true);
   fetch('/api/court', {
@@ -500,14 +452,6 @@ useEffect(() => {
 }, []);
 
 
-  const filteredCases = courtCases.filter(c => {
-    if (!searchCase.trim()) return true;
-    return (
-      (c.title || '').toLowerCase().includes(searchCase.toLowerCase()) ||
-      (c.description || '').toLowerCase().includes(searchCase.toLowerCase()) ||
-      (c.caseType || '').toLowerCase().includes(searchCase.toLowerCase())
-    );
-  });
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profileData, setProfileData] = useState(() => {
     const saved = localStorage.getItem('registrarProfile');
@@ -515,9 +459,8 @@ useEffect(() => {
   });
   const [isEditingProfile, setIsEditingProfile] = useState(false);
 
-  // Add state for profile image
-  const PROFILE_IMAGE_KEY = 'registrarProfileImage';
-  const [profileImage, setProfileImage] = useState(() => localStorage.getItem(PROFILE_IMAGE_KEY) || null);
+  // Profile image — served from the backend, same as every other role.
+  const [profileImage, setProfileImage] = useState(`/api/profile/photo/me?t=${Date.now()}`);
   const fileInputRef = useRef(null);
 
   // Add these state variables at the top with other state declarations
@@ -590,20 +533,15 @@ useEffect(() => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const storedImage = localStorage.getItem(PROFILE_IMAGE_KEY);
-    if (storedImage) setProfileImage(storedImage);
-  }, []);
-
-  const handleProfileImageUpload = (event) => {
+  const handleProfileImageUpload = async (event) => {
     const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setProfileImage(reader.result);
-      };
-      reader.readAsDataURL(file);
-    }
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('photo', file);
+    try {
+      const res = await fetch('/api/profile/photo', { method: 'POST', credentials: 'include', body: fd });
+      if (res.ok) setProfileImage(`/api/profile/photo/me?t=${Date.now()}`);
+    } catch { /* silent */ }
   };
   const triggerProfileImageUpload = () => fileInputRef.current.click();
 
@@ -923,140 +861,10 @@ const handleVerifySubmit = async (e) => {
     navigate('/login');
   };
 
-  // Helper to get CourtRegistrar info from localStorage (from signup)
-  const getCourtRegistrarInfo = () => {
-    return { name: '', email: '', phone: '', cnic: '', dob: '' };
-  };
-  const [courtRegistrarInfo] = useState(getCourtRegistrarInfo());
-
   // Add this handler function with other handlers
   const handleViewFinalDecision = (case_) => {
     setSelectedCase(case_);
     setShowFinalDecisionModal(true);
-  };
-
-  // Add handlers for evidence
-  const handleEvidenceAdd = () => {
-    setShowEvidenceModal(true);
-    setEditingEvidence(null);
-    setEvidenceForm({
-      caseTitle: '',
-      type: '',
-      description: '',
-      dateAdded: '',
-      status: 'Pending'
-    });
-  };
-
-  const handleEvidenceEdit = (evidence) => {
-    setEditingEvidence(evidence);
-    setEvidenceForm({ ...evidence });
-    setShowEvidenceModal(true);
-  };
-
-  const handleEvidenceView = (evidence) => {
-    setViewingEvidence(evidence);
-    setShowEvidenceViewModal(true);
-  };
-
-  const handleEvidenceDelete = (evidence) => {
-    setEvidence(evidence.filter(e => e.id !== evidence.id));
-    showToast('Evidence deleted!', 'danger');
-  };
-
-  // Add handlers for witnesses
-  const handleWitnessAdd = () => {
-    setShowWitnessModal(true);
-    setEditingWitness(null);
-    setWitnessForm({
-      name: '',
-      caseTitle: '',
-      contact: '',
-      status: 'Pending'
-    });
-  };
-
-  const handleWitnessEdit = (witness) => {
-    setEditingWitness(witness);
-    setWitnessForm({ ...witness });
-    setShowWitnessModal(true);
-  };
-
-  const handleWitnessView = (witness) => {
-    setViewingWitness(witness);
-    setShowWitnessViewModal(true);
-  };
-
-  const handleWitnessDelete = (witness) => {
-    setWitnesses(witnesses.filter(w => w.id !== witness.id));
-    showToast('Witness deleted!', 'danger');
-  };
-
-  // Add state variables for evidence and witness modals
-  const [showEvidenceModal, setShowEvidenceModal] = useState(false);
-  const [showEvidenceViewModal, setShowEvidenceViewModal] = useState(false);
-  const [editingEvidence, setEditingEvidence] = useState(null);
-  const [viewingEvidence, setViewingEvidence] = useState(null);
-  const [evidenceForm, setEvidenceForm] = useState({
-    caseTitle: '',
-    type: '',
-    description: '',
-    dateAdded: '',
-    status: 'Pending'
-  });
-
-  const [showWitnessModal, setShowWitnessModal] = useState(false);
-  const [showWitnessViewModal, setShowWitnessViewModal] = useState(false);
-  const [editingWitness, setEditingWitness] = useState(null);
-  const [viewingWitness, setViewingWitness] = useState(null);
-  const [witnessForm, setWitnessForm] = useState({
-    name: '',
-    caseTitle: '',
-    contact: '',
-    status: 'Pending'
-  });
-
-  // Add handlers for evidence form
-  const handleEvidenceFormChange = (e) => setEvidenceForm({ ...evidenceForm, [e.target.name]: e.target.value });
-  const handleEvidenceSubmit = (e) => {
-    e.preventDefault();
-    if (editingEvidence) {
-      setEvidence(evidence.map(e => e.id === editingEvidence.id ? { ...editingEvidence, ...evidenceForm } : e));
-      showToast('Evidence updated!');
-    } else {
-      setEvidence([...evidence, { ...evidenceForm, id: Date.now() }]);
-      showToast('Evidence added!');
-    }
-    setShowEvidenceModal(false);
-    setEditingEvidence(null);
-    setEvidenceForm({
-      caseTitle: '',
-      type: '',
-      description: '',
-      dateAdded: '',
-      status: 'Pending'
-    });
-  };
-
-  // Add handlers for witness form
-  const handleWitnessFormChange = (e) => setWitnessForm({ ...witnessForm, [e.target.name]: e.target.value });
-  const handleWitnessSubmit = (e) => {
-    e.preventDefault();
-    if (editingWitness) {
-      setWitnesses(witnesses.map(w => w.id === editingWitness.id ? { ...editingWitness, ...witnessForm } : w));
-      showToast('Witness updated!');
-    } else {
-      setWitnesses([...witnesses, { ...witnessForm, id: Date.now() }]);
-      showToast('Witness added!');
-    }
-    setShowWitnessModal(false);
-    setEditingWitness(null);
-    setWitnessForm({
-      name: '',
-      caseTitle: '',
-      contact: '',
-      status: 'Pending'
-    });
   };
 
   // Add after other state declarations
@@ -1239,163 +1047,6 @@ const handleOpenAssignJudge = () => {
   const [caseHistory, setCaseHistory] = useState([]);
   const [showCaseTimelineModal, setShowCaseTimelineModal] = useState(false);
   const [timelineCaseId, setTimelineCaseId] = useState(null);
-  const [showCaseHistoryModal, setShowCaseHistoryModal] = useState(false);
-  const [editingCaseHistory, setEditingCaseHistory] = useState(null);
-  const [caseHistoryForm, setCaseHistoryForm] = useState({
-    caseName: '',
-    judgeName: '',
-    clientName: '',
-    lawyerName: '',
-    remarks: '',
-    actionDate: '',
-    actionTaken: '',
-    status: '',
-  });
-
-
-  const getCaseHistory = async (caseId) => {
-  try {
-    const response = await fetch(`/api/cases/${caseId}/history`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        // Include credentials if session-based auth (e.g., Flask-Login)
-        credentials: 'include',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Error ${response.status}: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.history;
-  } catch (error) {
-    console.error('Failed to fetch case history:', error.message);
-    return [];
-  }
-};
-
-const handleViewCase = async (caseId) => {
-  const selectedCase = cases.find((caseItem) => caseItem.id === caseId);
-  setViewingCase(selectedCase);
-  const history = await getCaseHistory(caseId);  // Await result
-  setCaseHistory(history);                       // Save to state
-  setShowCaseViewModal(true);
-};
-
-  // Case History handlers
-  const handleCaseHistoryFormChange = (e) => setCaseHistoryForm({ ...caseHistoryForm, [e.target.name]: e.target.value });
-  const handleCaseHistorySubmit = async (e) => {
-  e.preventDefault();
-
-  // Prepare entry to save (merge editing entry + form data)
-  const entryToSave = editingCaseHistory
-    ? { ...editingCaseHistory, ...caseHistoryForm }
-    : { ...caseHistoryForm };
-
-  try {
-    // Call backend save
-    const method = entryToSave.id ? 'PUT' : 'POST';
-    const url = entryToSave.id
-      ? `/api/cases/history/${entryToSave.id}`      // Update
-      :`/api/cases/${caseId}/history`;             // Add new
-
-    const response = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        actiontaken: entryToSave.actiontaken,
-        remarks: entryToSave.remarks,
-      }),
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      alert(result.message || 'Failed to save case history');
-      return;
-    }
-
-    // On success, update local state:
-    if (method === 'POST') {
-      // If server returns the new entry with ID, add it:
-      // (if not returned, you may need to fetch history again)
-      // For now, just add local with a temporary ID or refresh
-      setCaseHistory((prev) => [{ ...entryToSave, id: result.new_id || Date.now() }, ...prev]);
-    } else {
-      // For update, replace existing item with updated data
-      setCaseHistory((prev) =>
-        prev.map((h) => (h.id === entryToSave.id ? { ...h, ...entryToSave } : h))
-      );
-    }
-
-    // Clear modal and form
-    setShowCaseHistoryModal(false);
-    setEditingCaseHistory(null);
-    setCaseHistoryForm({
-      caseName: '',
-      judgeName: '',
-      clientName: '',
-      lawyerName: '',
-      remarks: '',
-      actionDate: '',
-      actionTaken: '',
-      status: '',
-    });
-
-  } catch (error) {
-    alert('Error: ' + error.message);
-  }
-};
-
-  const handleEditCaseHistory = (entry) => {
-    setEditingCaseHistory(entry);
-    setCaseHistoryForm({ ...entry });
-    setShowCaseHistoryModal(true);
-  };
-  // const handleDeleteCaseHistory = (id) => {
-  //   setCaseHistory(caseHistory.filter(h => h.id !== id));
-  // };
-
-  // Assuming `caseId` is available in your component scope
-
-const handleSaveCaseHistory = async (entry) => {
-  try {
-    const method = entry.id ? 'PUT' : 'POST';
-    const url = entry.id
-      ? `/api/cases/history/${entry.id}`              // Update existing entry
-      : `/api/cases/${caseId}/history`;                // Add new entry
-
-    const response = await fetch(url, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        actiontaken: entry.actiontaken,
-        remarks: entry.remarks,
-      }),
-    });
-
-    const result = await response.json();
-
-    if (response.ok) {
-      // Success - update your local state accordingly
-      if (method === 'POST') {
-        // Optionally refresh case history list or append new entry with server-assigned id
-      }
-      setShowCaseHistoryModal(false);
-      // Refresh the caseHistory state from API or update it locally here
-    } else {
-      alert(result.message || 'Failed to save case history');
-    }
-  } catch (error) {
-    alert('Error: ' + error.message);
-  }
-};
-
-
   useEffect(() => {
     const fetchAllCaseHistory = async () => {
       if (selectedPage !== 'caseHistory') return;
@@ -1683,7 +1334,7 @@ const handleSaveCaseHistory = async (entry) => {
                               <td>{case_.casetype === 'Criminal' ? (case_.prosecutor || case_.prosecutorName || 'Not assigned') : 'Not applicable'}</td>
                               <td>{case_.judgeName}</td>
                     <td>
-                      <Badge bg={case_.status === 'In Progress' ? 'warning' : case_.status === 'Closed' ? 'success' : 'secondary'} className="px-3 py-1 fs-6">
+                      <Badge bg={case_.status === 'Open' ? 'success' : case_.status === 'Closed' ? 'secondary' : 'warning'} className="px-3 py-1 fs-6">
                         {case_.status}
                       </Badge>
                     </td>
@@ -2162,9 +1813,6 @@ const handleSaveCaseHistory = async (entry) => {
                         <h2 className="fw-bold mb-1" style={{ color: '#22304a' }}><i className="bi bi-clock-history me-2"></i>Case History</h2>
                         <div className="text-muted mb-2">View the recorded activity timeline for cases in the court.</div>
                       </div>
-                      {/* <Button variant="primary" onClick={() => { setEditingCaseHistory(null); setCaseHistoryForm({ caseName: '', judgeName: '', clientName: '', lawyerName: '', remarks: '', actionDate: '', actionTaken: '', status: '' }); setShowCaseHistoryModal(true); }}>
-                        Add Entry
-                      </Button> */}
                     </div>
                     <div className="table-responsive">
                       <table className="table align-middle mb-0">
@@ -2227,57 +1875,6 @@ const handleSaveCaseHistory = async (entry) => {
                     </div>
                   </Card.Body>
                 </Card>
-                <Modal show={showCaseHistoryModal} onHide={() => { setShowCaseHistoryModal(false); setEditingCaseHistory(null); }} centered>
-                  <Modal.Header closeButton>
-                    <Modal.Title>{editingCaseHistory ? 'Edit Case History Entry' : 'Add Case History Entry'}</Modal.Title>
-                  </Modal.Header>
-                  <Form onSubmit={handleCaseHistorySubmit}>
-                    <Modal.Body>
-                      <Form.Group className="mb-3">
-                        <Form.Label>Case Name</Form.Label>
-                        <Form.Control type="text" name="caseName" value={caseHistoryForm.caseName} onChange={handleCaseHistoryFormChange} required />
-                      </Form.Group>
-                      <Form.Group className="mb-3">
-                        <Form.Label>Judge Name</Form.Label>
-                        <Form.Control type="text" name="judgeName" value={caseHistoryForm.judgeName} onChange={handleCaseHistoryFormChange} required />
-                      </Form.Group>
-                      <Form.Group className="mb-3">
-                        <Form.Label>Client Name</Form.Label>
-                        <Form.Control type="text" name="clientName" value={caseHistoryForm.clientName} onChange={handleCaseHistoryFormChange} />
-                      </Form.Group>
-                      <Form.Group className="mb-3">
-                        <Form.Label>Lawyer Name</Form.Label>
-                        <Form.Control type="text" name="lawyerName" value={caseHistoryForm.lawyerName} onChange={handleCaseHistoryFormChange} />
-                      </Form.Group>
-                      <Form.Group className="mb-3">
-                        <Form.Label>Remarks</Form.Label>
-                        <Form.Control as="textarea" name="remarks" value={caseHistoryForm.remarks} onChange={handleCaseHistoryFormChange} />
-                      </Form.Group>
-                      <Form.Group className="mb-3">
-                        <Form.Label>Action Date</Form.Label>
-                        <Form.Control type="date" name="actionDate" value={caseHistoryForm.actionDate} onChange={handleCaseHistoryFormChange} required />
-                      </Form.Group>
-                      <Form.Group className="mb-3">
-                        <Form.Label>Action Taken</Form.Label>
-                        <Form.Control type="text" name="actionTaken" value={caseHistoryForm.actionTaken} onChange={handleCaseHistoryFormChange} required />
-                      </Form.Group>
-                      <Form.Group className="mb-3">
-                        <Form.Label>Status</Form.Label>
-                        <Form.Select name="status" value={caseHistoryForm.status} onChange={handleCaseHistoryFormChange} required>
-                          <option value="">Select status</option>
-                          <option value="Pending">Pending</option>
-                          <option value="Completed">Completed</option>
-                          <option value="Adjourned">Adjourned</option>
-                          <option value="Cancelled">Cancelled</option>
-                        </Form.Select>
-                      </Form.Group>
-                    </Modal.Body>
-                    <Modal.Footer>
-                      <Button variant="secondary" onClick={() => { setShowCaseHistoryModal(false); setEditingCaseHistory(null); }}>Cancel</Button>
-                      <Button variant="primary" type="submit">{editingCaseHistory ? 'Save Changes' : 'Add Entry'}</Button>
-                    </Modal.Footer>
-                  </Form>
-                </Modal>
 
                 {/* Case Timeline Modal */}
                 <Modal show={showCaseTimelineModal} onHide={() => setShowCaseTimelineModal(false)} centered size="lg">
@@ -2341,10 +1938,6 @@ const handleSaveCaseHistory = async (entry) => {
     {confirm.type === 'deleteRoom' && (
       <span>Are you sure you want to delete courtroom <b>#{confirm.payload?.number}</b>?</span>
     )}
-    {confirm.type === 'deletePayment' && (
-      <span>Are you sure you want to delete the payment record for <b>{confirm.payload?.caseName}</b>?</span>
-    )}
-    {/* Add more types if needed */}
   </Modal.Body>
   <Modal.Footer>
     <Button variant="secondary" onClick={() => setConfirm({ show: false, type: '', payload: null })}>
@@ -2355,8 +1948,6 @@ const handleSaveCaseHistory = async (entry) => {
       onClick={() => {
         if (confirm.type === 'deleteRoom') {
           handleConfirmDeleteRoom();
-        } else if (confirm.type === 'deletePayment') {
-          // Call handleConfirmDeletePayment() if you implement that
         }
       }}
     >
@@ -2520,12 +2111,13 @@ const handleSaveCaseHistory = async (entry) => {
                 <Card.Body className="text-center p-4">
                     <div className="position-relative d-inline-block mb-3">
                     <img
-                      src={profileImage || `https://picsum.photos/seed/${profileData.name || 'registrar'}/150/150`}
+                      src={profileImage}
                       alt="Registrar Avatar"
                       className="rounded-circle border-4 border-primary shadow-sm"
                       width={150}
                       height={150}
                       style={{ objectFit: 'cover' }}
+                      onError={e => { e.target.onerror = null; e.target.src = 'https://placehold.co/150'; }}
                     />
                     {isEditingProfile && (
                       <Button
@@ -2670,164 +2262,6 @@ const handleSaveCaseHistory = async (entry) => {
         </Modal.Footer>
       </Modal>
 
-      {/* Evidence Add/Edit Modal */}
-      <Modal show={showEvidenceModal} onHide={() => { setShowEvidenceModal(false); setEditingEvidence(null); }} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>{editingEvidence ? 'Edit Evidence' : 'Add Evidence'}</Modal.Title>
-        </Modal.Header>
-        <Form onSubmit={handleEvidenceSubmit}>
-          <Modal.Body>
-            <Form.Group className="mb-3">
-              <Form.Label>Case</Form.Label>
-              <Form.Select name="caseTitle" value={evidenceForm.caseTitle} onChange={handleEvidenceFormChange} required>
-                <option value="">Select case</option>
-                {cases.map(c => (
-                  <option key={c.id} value={c.title}>{c.title}</option>
-                ))}
-              </Form.Select>
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Type</Form.Label>
-              <Form.Select name="type" value={evidenceForm.type} onChange={handleEvidenceFormChange} required>
-                <option value="">Select type</option>
-                <option value="Document">Document</option>
-                <option value="Physical">Physical</option>
-                <option value="Digital">Digital</option>
-                <option value="Testimony">Testimony</option>
-              </Form.Select>
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Description</Form.Label>
-              <Form.Control type="text" name="description" value={evidenceForm.description} onChange={handleEvidenceFormChange} required />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Date Added</Form.Label>
-              <Form.Control type="date" name="dateAdded" value={evidenceForm.dateAdded} onChange={handleEvidenceFormChange} required />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Status</Form.Label>
-              <Form.Select name="status" value={evidenceForm.status} onChange={handleEvidenceFormChange} required>
-                <option value="Pending">Pending</option>
-                <option value="Verified">Verified</option>
-                <option value="Rejected">Rejected</option>
-              </Form.Select>
-            </Form.Group>
-          </Modal.Body>
-          <Modal.Footer>
-            <Button variant="secondary" onClick={() => { setShowEvidenceModal(false); setEditingEvidence(null); }}>Cancel</Button>
-            <Button variant="primary" type="submit" disabled={loading}>{loading ? <Spinner animation="border" size="sm" className="me-2" /> : null}{editingEvidence ? 'Save Changes' : 'Add Evidence'}</Button>
-          </Modal.Footer>
-        </Form>
-      </Modal>
-
-      {/* Evidence View Modal */}
-      <Modal show={showEvidenceViewModal} onHide={() => setShowEvidenceViewModal(false)} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>Evidence Details</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          {viewingEvidence && (
-            <div>
-              <div className="mb-3">
-                <h6>Case</h6>
-                <p>{viewingEvidence.caseTitle}</p>
-              </div>
-              <div className="mb-3">
-                <h6>Type</h6>
-                <p>{viewingEvidence.type}</p>
-              </div>
-              <div className="mb-3">
-                <h6>Description</h6>
-                <p>{viewingEvidence.description}</p>
-              </div>
-              <div className="mb-3">
-                <h6>Date Added</h6>
-                <p>{viewingEvidence.dateAdded}</p>
-              </div>
-              <div>
-                <h6>Status</h6>
-                <p>{viewingEvidence.status}</p>
-              </div>
-            </div>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowEvidenceViewModal(false)}>Close</Button>
-        </Modal.Footer>
-      </Modal>
-
-      {/* Witness Add/Edit Modal */}
-      <Modal show={showWitnessModal} onHide={() => { setShowWitnessModal(false); setEditingWitness(null); }} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>{editingWitness ? 'Edit Witness' : 'Add Witness'}</Modal.Title>
-        </Modal.Header>
-        <Form onSubmit={handleWitnessSubmit}>
-          <Modal.Body>
-            <Form.Group className="mb-3">
-              <Form.Label>Name</Form.Label>
-              <Form.Control type="text" name="name" value={witnessForm.name} onChange={handleWitnessFormChange} required />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Case</Form.Label>
-              <Form.Select name="caseTitle" value={witnessForm.caseTitle} onChange={handleWitnessFormChange} required>
-                <option value="">Select case</option>
-                {cases.map(c => (
-                  <option key={c.id} value={c.title}>{c.title}</option>
-                ))}
-              </Form.Select>
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Contact</Form.Label>
-              <Form.Control type="text" name="contact" value={witnessForm.contact} onChange={handleWitnessFormChange} required />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Status</Form.Label>
-              <Form.Select name="status" value={witnessForm.status} onChange={handleWitnessFormChange} required>
-                <option value="Pending">Pending</option>
-                <option value="Scheduled">Scheduled</option>
-                <option value="Testified">Testified</option>
-              </Form.Select>
-            </Form.Group>
-          </Modal.Body>
-          <Modal.Footer>
-            <Button variant="secondary" onClick={() => { setShowWitnessModal(false); setEditingWitness(null); }}>Cancel</Button>
-            <Button variant="primary" type="submit" disabled={loading}>{loading ? <Spinner animation="border" size="sm" className="me-2" /> : null}{editingWitness ? 'Save Changes' : 'Add Witness'}</Button>
-          </Modal.Footer>
-        </Form>
-      </Modal>
-
-      {/* Witness View Modal */}
-      <Modal show={showWitnessViewModal} onHide={() => setShowWitnessViewModal(false)} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>Witness Details</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          {viewingWitness && (
-            <div>
-              <div className="mb-3">
-                <h6>Name</h6>
-                <p>{viewingWitness.name}</p>
-              </div>
-              <div className="mb-3">
-                <h6>Case</h6>
-                <p>{viewingWitness.caseTitle}</p>
-              </div>
-              <div className="mb-3">
-                <h6>Contact</h6>
-                <p>{viewingWitness.contact}</p>
-              </div>
-              <div>
-                <h6>Status</h6>
-                <p>{viewingWitness.status}</p>
-              </div>
-            </div>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowWitnessViewModal(false)}>Close</Button>
-        </Modal.Footer>
-      </Modal>
-
       {/* Payment Add/Edit Modal */}
       <Modal show={showPaymentModal} onHide={() => setShowPaymentModal(false)} centered>
         <Modal.Header closeButton>
@@ -2955,23 +2389,6 @@ const handleSaveCaseHistory = async (entry) => {
             <Button variant="primary" type="submit">{editingPayment ? 'Update' : 'Add'} Payment</Button>
           </Modal.Footer>
         </Form>
-      </Modal>
-
-      {/* Payment Delete Confirmation Modal */}
-      <Modal show={confirm.show} onHide={() => setConfirm({ show: false, type: '', payload: null })} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>Confirm Delete</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          Are you sure you want to delete this payment record?
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => setConfirm({ show: false, type: '', payload: null })}>Cancel</Button>
-          <Button variant="danger" onClick={() => {
-            setCourtPayments(prev => prev.filter(p => p.id !== confirm.payload.id));
-            setConfirm({ show: false, type: '', payload: null });
-          }}>Delete</Button>
-        </Modal.Footer>
       </Modal>
 
       {/* Prosecutor Add/Edit Modal */}

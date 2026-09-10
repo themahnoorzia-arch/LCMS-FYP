@@ -9,8 +9,6 @@ import Billing from '../components/dashboard/Billing';
 import Evidence from './Evidence.jsx';
 import Witnesses from './Witnesses.jsx';
 
-const PROFILE_IMAGE_KEY = 'lawyerProfileImage';
-
 // Lets a lawyer search for and pick an already-registered client instead of
 // typing a free-text name (which used to silently create a fake account for
 // any name that didn't match an existing user).
@@ -26,9 +24,7 @@ const ClientPicker = ({ selected, onSelect }) => {
     }
     setSearching(true);
     try {
-      const token = localStorage.getItem('userToken');
       const res = await fetch(`/api/clients?query=${encodeURIComponent(search.trim())}`, {
-        headers: { 'Authorization': `Bearer ${token}` },
         credentials: 'include',
       });
       const data = await res.json();
@@ -85,9 +81,8 @@ const ClientPicker = ({ selected, onSelect }) => {
 
 const Dashboard = () => {
   const [activeView, setActiveView] = useState('cases');
-  const [profileImage, setProfileImage] = useState(null);
+  const [profileImage, setProfileImage] = useState(`/api/profile/photo/me?t=${Date.now()}`);
   const [lawyerData, setLawyerData] = useState(null);
-  const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [fallbackWarning, setFallbackWarning] = useState('');
@@ -119,6 +114,7 @@ const Dashboard = () => {
   const [historyCase, setHistoryCase] = useState(null);
   const [caseHistory, setCaseHistory] = useState([]);
   const [loadingTimeline, setLoadingTimeline] = useState(false);
+  const [isSubmittingCase, setIsSubmittingCase] = useState(false);
 
   const getCaseHistory = async (caseId) => {
     try {
@@ -162,10 +158,7 @@ const Dashboard = () => {
       try {
         const res = await fetch('/api/courts', {
           method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('userToken')}`,
-          },
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
         });
         if (!res.ok) return;
@@ -182,10 +175,7 @@ const Dashboard = () => {
       try {
         const response = await fetch('/api/dashboard', {
           method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('userToken')}`,
-          },
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
         });
 
@@ -195,24 +185,6 @@ const Dashboard = () => {
 
         if (result.success) {
           setLawyerData(result.user);
-          const storedImage = localStorage.getItem(PROFILE_IMAGE_KEY);
-          setProfileImage(storedImage || 'https://placehold.co/150');
-
-          const paymentRes = await fetch('/api/payments', {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('userToken')}`,
-            },
-            credentials: 'include',
-          });
-
-          if (paymentRes.ok) {
-            const paymentData = await paymentRes.json();
-            if (paymentData.status === 'success') {
-              setPayments(paymentData.payments);
-            }
-          }
         } else {
           setError('Failed to load user data.');
         }
@@ -222,55 +194,52 @@ const Dashboard = () => {
     };
 
     const fetchCases = async () => {
-  try {
-    const res = await fetch('/api/cases', {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('userToken')}`,
-      },
-      credentials: 'include',
-    });
+      try {
+        const res = await fetch('/api/cases', {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+        });
 
-    if (!res.ok) throw new Error('Failed to fetch cases');
+        if (!res.ok) throw new Error('Failed to fetch cases');
 
-    const data = await res.json();
-    const caseList = Array.isArray(data.cases)
-      ? data.cases
-      : Array.isArray(data)
-        ? data
-        : null;
+        const data = await res.json();
+        const caseList = Array.isArray(data.cases)
+          ? data.cases
+          : Array.isArray(data)
+            ? data
+            : null;
 
-    if (caseList) {
-      const normalizedCases = caseList.map(c => ({
-        id: c.caseid,
-        title: c.title,
-        description: c.description,
-        caseType: c.casetype,
-        filingDate: c.filingdate,
-        status: c.status,
-        clientName: c.clientname || 'N/A',
-        courtName: c.courtname || 'N/A',
-        judgeName: c.judgeName || 'N/A',
-        decisionDate: c.decisiondate || '',
-        decisionSummary: c.decisionsummary || '',
-        verdict: c.verdict || '',
-        history: c.history || [],
-        prosecutor: c.prosecutorName || c.prosecutor || 'N/A',
-        myAccessStatus: (c.myaccessstatus || 'approved').toLowerCase(),
-        mySide: c.myside || '',
-      }));
-      setCases(normalizedCases);
-    } else {
-      throw new Error('Invalid response structure');
-    }
-  } catch (err) {
-    setFallbackWarning('Could not load cases from the server.');
-    setCases([]);
-  } finally {
-    setLoading(false);
-  }
-};
+        if (caseList) {
+          const normalizedCases = caseList.map(c => ({
+            id: c.caseid,
+            title: c.title,
+            description: c.description,
+            caseType: c.casetype,
+            filingDate: c.filingdate,
+            status: c.status,
+            clientName: c.clientname || 'N/A',
+            courtName: c.courtname || 'N/A',
+            judgeName: c.judgeName || 'N/A',
+            decisionDate: c.decisiondate || '',
+            decisionSummary: c.decisionsummary || '',
+            verdict: c.verdict || '',
+            history: c.history || [],
+            prosecutor: c.prosecutorName || c.prosecutor || 'N/A',
+            myAccessStatus: (c.myaccessstatus || 'approved').toLowerCase(),
+            mySide: c.myside || '',
+          }));
+          setCases(normalizedCases);
+        } else {
+          throw new Error('Invalid response structure');
+        }
+      } catch (err) {
+        setFallbackWarning('Could not load cases from the server.');
+        setCases([]);
+      } finally {
+        setLoading(false);
+      }
+    };
 
     fetchLawyerData();
     if (activeView === 'cases') {
@@ -280,76 +249,45 @@ const Dashboard = () => {
 
   const handleProfileClick = () => navigate('/profile');
 
-  const createPayment = async (newPayment) => {
-    try {
-      const res = await fetch('/api/payments', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('userToken')}`,
-        },
-        credentials: 'include',
-        body: JSON.stringify(newPayment),
-      });
-
-      const result = await res.json();
-
-      if (res.ok && result.message) {
-        const addedPayment = {
-          paymentdate: newPayment.paymentdate || new Date().toISOString().split('T')[0],
-          casename: newPayment.casename,
-          purpose: newPayment.purpose,
-          balance: newPayment.balance,
-          mode: newPayment.mode
-        };
-
-        setPayments(prev => [...prev, addedPayment]);
-      }
-    } catch (error) {
-      console.error('Error creating payment:', error);
-    }
-  };
-const handleCaseSubmit = async (e) => {
+  const handleCaseSubmit = async (e) => {
     e.preventDefault(); // Prevent the default form submission
-    const token = localStorage.getItem('userToken');
+    if (isSubmittingCase) return; // ignore extra clicks while a request is in flight
 
     if (!editingCase && !selectedClient) {
       alert('Please search for and select the client this case is for.');
       return;
     }
 
+    setIsSubmittingCase(true);
+
+    // Court is only sent on creation — editing an existing case's court is
+    // not supported by the backend (a case's court is a registrar-level
+    // jurisdictional decision, not a lawyer self-service edit), so the
+    // field is read-only in the edit form and never included here.
     const caseData = {
       title: caseForm.title,
       description: caseForm.description,
       casetype: caseForm.caseType,
-      courtname: caseForm.courtName,
-      // casenumber removed from lawyer submission; registrar assigns case numbers
       side: caseForm.side,
-      ...(editingCase ? {} : { participantId: selectedClient?.participantid, clientName: selectedClient?.name }),
+      ...(editingCase
+        ? {}
+        : { courtname: caseForm.courtName, participantId: selectedClient?.participantid, clientName: selectedClient?.name }),
     };
 
     try {
       let res;
 
-      // Note: Duplicate-check by case number removed from lawyer submission.
-
       if (editingCase) {
         res = await fetch(`/api/cases/${editingCase.id}`, {
           method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify(caseData),
         });
       } else {
         res = await fetch('/api/cases', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify(caseData),
         });
@@ -362,12 +300,21 @@ const handleCaseSubmit = async (e) => {
       const data = responseData;
 
       if (editingCase) {
-      // Update the case in the state if editing
-      setCases(prevCases =>
-        prevCases.map(c => (c.id === editingCase.id ? { ...c, ...caseData } : c))
-      );
-    } else {
-      // Add the new case to the state if it's a new case
+        // Update the case in the state if editing. caseData uses the
+        // lowercase field names the API expects (casetype); the table
+        // renders the camelCase display names (caseType), so those need to
+        // be mapped explicitly or the edit wouldn't show up until the page
+        // was refreshed.
+        setCases(prevCases =>
+          prevCases.map(c => (c.id === editingCase.id ? {
+            ...c,
+            title: caseData.title,
+            description: caseData.description,
+            caseType: caseData.casetype,
+          } : c))
+        );
+      } else {
+        // Add the new case to the state if it's a new case
         const addedCase = {
           id: data.case_id,
           title: caseForm.title,
@@ -383,28 +330,28 @@ const handleCaseSubmit = async (e) => {
         };
 
         setCases([addedCase, ...cases]);
+      }
+
+      // Close the modal and reset the form
+      setShowCaseModal(false);
+      setEditingCase(null);
+      setSelectedClient(null);
+      setCaseForm({
+        title: '',
+        description: '',
+        caseType: '',
+        clientName: '',
+        courtName: '',
+        side: 'Petitioner',
+      });
+
+    } catch (err) {
+      console.error('Error submitting case:', err);
+      alert(err.message || 'Failed to submit the case');
+    } finally {
+      setIsSubmittingCase(false);
     }
-
-    // Close the modal and reset the form
-    setShowCaseModal(false);
-    setEditingCase(null);
-    setSelectedClient(null);
-    setCaseForm({
-      title: '',
-      description: '',
-      caseType: '',
-      clientName: '',
-      courtName: '',
-      side: 'Petitioner',
-    });
-
-  } catch (err) {
-    console.error('Error submitting case:', err);
-    alert(err.message || 'Failed to submit the case');
-  }
-};
-
-
+  };
 
   const handleLogout = () => {
     localStorage.clear();
@@ -419,17 +366,17 @@ const handleCaseSubmit = async (e) => {
             <Card.Header className="bg-white border-bottom-0 pb-0">
               <div className="d-flex align-items-center gap-3 mb-2">
                 <h4 className="mb-0 fw-bold"><span className="me-2" role="img" aria-label="cases">📋</span>My Cases</h4>
-                <Button 
-                  variant="primary" 
-                  size="sm" 
+                <Button
+                  variant="primary"
+                  size="sm"
                   className="d-flex align-items-center gap-2"
                   onClick={() => { setEditingCase(null); setSelectedClient(null); setShowCaseModal(true); }}
                 >
                   <PlusCircle size={16} /> Request New Case Filing
                 </Button>
-                <Button 
-                  variant="primary" 
-                  size="sm" 
+                <Button
+                  variant="primary"
+                  size="sm"
                   className="d-flex align-items-center gap-2"
                   onClick={() => setShowJoinModal(true)}
                 >
@@ -559,7 +506,7 @@ const handleCaseSubmit = async (e) => {
       case 'calendar':
         return <CalendarSummary />;
       case 'billing':
-        return <Billing payments={payments} onCreatePayment={createPayment} />;
+        return <Billing />;
       case 'evidence':
         return <Evidence />;
       case 'witnesses':
@@ -599,6 +546,7 @@ const handleCaseSubmit = async (e) => {
                 height={40}
                 className="border"
                 style={{ borderColor: '#fff' }}
+                onError={e => { e.target.onerror = null; e.target.src = 'https://placehold.co/40'; }}
               />
               <div>
                 <h6 className="mb-0" style={{ color: '#fff', fontWeight: 600 }}>{lawyerData?.username}</h6>
@@ -698,7 +646,14 @@ const handleCaseSubmit = async (e) => {
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Court Name</Form.Label>
-              {courts && courts.length > 0 ? (
+              {editingCase ? (
+                <>
+                  <Form.Control type="text" value={caseForm.courtName} disabled readOnly />
+                  <Form.Text className="text-muted">
+                    A case's court is assigned by the court registrar and can't be changed here.
+                  </Form.Text>
+                </>
+              ) : courts && courts.length > 0 ? (
                 <Form.Select
                   value={caseForm.courtName}
                   onChange={e => setCaseForm({ ...caseForm, courtName: e.target.value })}
@@ -722,8 +677,10 @@ const handleCaseSubmit = async (e) => {
 
           </Modal.Body>
           <Modal.Footer>
-            <Button variant="secondary" onClick={() => { setShowCaseModal(false); setSelectedClient(null); }}>Cancel</Button>
-            <Button variant="primary" type="submit">{editingCase ? 'Update' : 'Add'} Case</Button>
+            <Button variant="secondary" onClick={() => { setShowCaseModal(false); setSelectedClient(null); }} disabled={isSubmittingCase}>Cancel</Button>
+            <Button variant="primary" type="submit" disabled={isSubmittingCase}>
+              {isSubmittingCase ? 'Saving...' : `${editingCase ? 'Update' : 'Add'} Case`}
+            </Button>
           </Modal.Footer>
         </Form>
       </Modal>
@@ -742,13 +699,9 @@ const handleCaseSubmit = async (e) => {
             />
             <Button variant="primary" onClick={async () => {
               try {
-                const token = localStorage.getItem('userToken');
                 const res = await fetch(`/api/cases/check-duplicate?query=${encodeURIComponent(joinSearch)}`, {
                   method: 'GET',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
-                  },
+                  headers: { 'Content-Type': 'application/json' },
                   credentials: 'include',
                 });
                 const data = await res.json();
@@ -807,13 +760,9 @@ const handleCaseSubmit = async (e) => {
             if (!selectedCase || !joinSide) return alert('Select a case and side first');
             if (!selectedJoinClient) return alert('Please search for and select the client you represent');
             try {
-              const token = localStorage.getItem('userToken');
               const res = await fetch('/api/cases/join-request', {
                 method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`,
-                },
+                headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
                 body: JSON.stringify({ caseid: selectedCase.caseid, side: joinSide, participantId: selectedJoinClient.participantid }),
               });
@@ -826,7 +775,6 @@ const handleCaseSubmit = async (e) => {
               setJoinSide('');
               setSelectedJoinClient(null);
               alert(data?.message || 'Join request sent. Waiting for registrar approval.');
-              fetchCases();
             } catch (err) {
               console.error('Error joining case:', err);
               alert(err.message || 'Failed to join case');

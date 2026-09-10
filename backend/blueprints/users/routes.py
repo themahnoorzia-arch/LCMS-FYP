@@ -391,7 +391,16 @@ def update_client_profile():
 
         return jsonify(
             success=True,
-            message="Profile updated successfully"
+            message="Profile updated successfully",
+            data={
+                "firstName": user_row.firstname,
+                "lastName": user_row.lastname,
+                "email": user_row.email,
+                "phone": user_row.phoneno,
+                "cnic": user_row.cnic,
+                "dob": user_row.dob.isoformat() if user_row.dob else "",
+                "address": client.address,
+            },
         )
 
     except Exception as e:

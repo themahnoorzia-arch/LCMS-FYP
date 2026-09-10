@@ -116,10 +116,7 @@ function JudgeDashboard() {
     try {
       const response = await fetch('/api/cases', {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('userToken')}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
       });
 
@@ -137,8 +134,6 @@ function JudgeDashboard() {
         lawyers: c.lawyers || 'N/A',
         clientName: c.clientName || '',
         courtName: c.courtName || c.courtname || 'N/A',
-        nextHearing: c.nextHearing || 'N/A',
-        remarks: c.remarks || '',
         finalDecision: c.finalDecision,
         history: c.history || [],
         evidence: c.evidence || [],
@@ -161,10 +156,7 @@ useEffect(() => {
     try {
       const response = await fetch('/api/hearings', {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('userToken')}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
       });
 
@@ -248,10 +240,7 @@ useEffect(() => {
   try {
     const res = await fetch(`/api/cases/${selectedCase.id}/final-decision`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('userToken')}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({
         verdict: decisionForm.verdict,
@@ -272,7 +261,7 @@ useEffect(() => {
         ? {
             ...c,
             finalDecision: decisionForm.verdict,
-            status: 'Completed',
+            status: 'Closed',
             history: [
               ...(c.history || []),
               {
@@ -337,10 +326,7 @@ useEffect(() => {
   try {
     const response = await fetch(editingHearing ? `/api/hearings/${editingHearing.id}` : '/api/hearings', {
       method: editingHearing ? 'PUT' : 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('userToken')}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({
         caseid: hearingForm.caseId,
@@ -383,10 +369,7 @@ const updateHearingRemarks = async (hearingId, remarks) => {
   try {
     const response = await fetch(`/api/hearings/remarks?hearingid=${hearingId}`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('userToken')}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({ remarks }),
     });
@@ -460,8 +443,7 @@ const updateHearingRemarks = async (hearingId, remarks) => {
                   <option value="All">All Statuses</option>
                   <option value="Open">Open</option>
                   <option value="Pending">Pending</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Completed">Completed</option>
+                  <option value="Closed">Closed</option>
                 </Form.Select>
               </Col>
             </Row>
@@ -496,7 +478,7 @@ const updateHearingRemarks = async (hearingId, remarks) => {
                           <td>{case_.lawyers}</td>
                           <td>{case_.filingDate}</td>
                           <td>
-                            <Badge bg={case_.status === 'Open' ? 'success' : case_.status === 'Completed' ? 'secondary' : 'warning'}>
+                            <Badge bg={case_.status === 'Open' ? 'success' : case_.status === 'Closed' ? 'secondary' : 'warning'}>
                               {case_.status}
                             </Badge>
                           </td>
@@ -505,7 +487,7 @@ const updateHearingRemarks = async (hearingId, remarks) => {
                               <Button variant="outline-primary" size="sm" onClick={() => handleViewHistory(case_)}>History</Button>
                               <Button variant="outline-info" size="sm" onClick={() => handleViewEvidence(case_)}>Evidence</Button>
                               <Button variant="outline-secondary" size="sm" onClick={() => handleViewWitnesses(case_)}>Witnesses</Button>
-                              {case_.status !== 'Completed' && (
+                              {case_.status !== 'Closed' && (
                                 <Button variant="outline-success" size="sm" onClick={() => handleAnnounceDecision(case_)}>Decision</Button>
                               )}
                             </div>

@@ -380,6 +380,41 @@ def create_case():
 
         courtid = court_row['courtid']
 
+        # Idempotency guard against double-click / double-submit: if this
+        # exact case (same lead lawyer, client, title, type, court and
+        # filing date) was already created moments ago, hand back that
+        # case instead of inserting a second one. Every field has to match,
+        # so two genuinely separate cases that merely share some details
+        # (same client, different title; same title, different client) are
+        # never affected.
+        cur.execute(
+            """
+            SELECT c.caseid
+            FROM cases c
+            JOIN caselawyeraccess cla ON cla.caseid = c.caseid
+            JOIN caseparticipantaccess cpa ON cpa.caseid = c.caseid
+            JOIN courtaccess ca ON ca.caseid = c.caseid
+            WHERE cla.lawyerid = %s AND cla.is_lead = TRUE
+              AND cpa.participantid = %s
+              AND c.title = %s
+              AND c.casetype = %s
+              AND ca.courtid = %s
+              AND c.filingdate = %s
+            ORDER BY c.caseid DESC
+            LIMIT 1
+            """,
+            (lawyerid, participant_id, title, casetype, courtid, filingdate)
+        )
+        duplicate_row = cur.fetchone()
+        if duplicate_row:
+            existing_caseid = (
+                duplicate_row['caseid'] if isinstance(duplicate_row, dict) else duplicate_row[0]
+            )
+            return jsonify({
+                'message': 'Case created successfully',
+                'case_id': existing_caseid
+            }), 201
+
         # Note: this endpoint always creates a brand-new case. A lawyer who
         # wants to attach themselves to an already-registered case (e.g. the
         # opposing party's counsel) must go through POST /cases/join-request,
@@ -453,6 +488,24 @@ def create_case():
 
         from utils.logging import write_log
         write_log("CREATE", f"New case registered: {title}", "case")
+
+        # Notify the client(s) this case was filed for — same
+        # caseparticipantaccess join pattern used for hearing-scheduled and
+        # final-decision notifications.
+        try:
+            from utils.notifications import push_notification
+            cur.execute(
+                "SELECT cp.userid FROM caseparticipant cp "
+                "JOIN caseparticipantaccess cpa ON cpa.participantid = cp.participantid "
+                "WHERE cpa.caseid = %s",
+                (caseid,),
+            )
+            for row in cur.fetchall():
+                participant_userid = row['userid'] if isinstance(row, dict) else row[0]
+                push_notification(participant_userid, "New Case Filed",
+                    f'A new case, "{title}", has been filed for you.', "info", caseid)
+        except Exception:
+            pass
 
         return jsonify({
             'message': 'Case created successfully',
@@ -722,6 +775,33 @@ def update_case(case_id):
             'casetype',
             case.casetype
         )
+
+        new_courtname = data.get('courtname')
+        if new_courtname is not None:
+            court = db.query(Court).filter_by(courtname=new_courtname).first()
+            if not court:
+                return jsonify({'message': 'Court not found'}), 404
+            # Replace any existing court link for this case rather than
+            # adding a second one — same replace-not-add rule already used
+            # for judge reassignment in verify_case().
+            db.execute(
+                t_courtaccess.delete().where(
+                    t_courtaccess.c.caseid == case_id,
+                    t_courtaccess.c.courtid != court.courtid,
+                )
+            )
+            already_linked = (
+                db.query(t_courtaccess)
+                .filter(
+                    t_courtaccess.c.caseid == case_id,
+                    t_courtaccess.c.courtid == court.courtid,
+                )
+                .first()
+            )
+            if not already_linked:
+                db.execute(
+                    t_courtaccess.insert().values(caseid=case_id, courtid=court.courtid)
+                )
 
         new_status = data.get('status')
         if new_status is not None:
@@ -1220,6 +1300,25 @@ def verify_case():
 
         from utils.logging import write_log
         write_log("UPDATE", f"Case verified and opened — case number: {casenumber}", "case")
+
+        # Notify the client(s) on this case that it's been approved — same
+        # caseparticipantaccess join pattern used for hearing-scheduled and
+        # final-decision notifications.
+        try:
+            from utils.notifications import push_notification
+            cur.execute(
+                "SELECT c.title, cp.userid FROM cases c "
+                "JOIN caseparticipantaccess cpa ON cpa.caseid = c.caseid "
+                "JOIN caseparticipant cp ON cp.participantid = cpa.participantid "
+                "WHERE c.caseid = %s",
+                (caseid,),
+            )
+            for row in cur.fetchall():
+                push_notification(row['userid'], "Case Approved",
+                    f'Your case, "{row["title"]}", has been approved by the court registrar.',
+                    "success", caseid)
+        except Exception:
+            pass
 
         return jsonify({
             'message': 'Case verified successfully',

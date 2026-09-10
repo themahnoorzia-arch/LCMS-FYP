@@ -61,9 +61,16 @@ def add_court():
     except Exception as e:
         db.rollback()
 
+        # Duplicate submission (e.g. a double-click) — court_courtname_lower_key
+        # is the real DB-level guard against two courts with the same name.
+        if "court_courtname_lower_key" in str(e):
+            message = "A court with this name already exists."
+        else:
+            message = str(e)
+
         return jsonify({
             "status": "error",
-            "message": str(e)
+            "message": message
         }), 500
 
     finally:
@@ -231,8 +238,16 @@ def create_courtroom():
         if conn:
             conn.rollback()
 
+        # Duplicate submission (e.g. a double-click) — courtroom_courtid_no_key
+        # is the real DB-level guard against two rooms with the same number
+        # in the same court.
+        if "courtroom_courtid_no_key" in str(e):
+            message = "A courtroom with this number already exists in your court."
+        else:
+            message = str(e)
+
         return jsonify({
-            "message": str(e)
+            "message": message
         }), 500
 
     finally:

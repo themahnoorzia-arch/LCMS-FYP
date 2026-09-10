@@ -35,10 +35,7 @@ function ClientDashboard() {
       try {
         const response = await fetch('/api/clientprofile', {
           method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('userToken')}`,
-          },
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
         });
         if (!response.ok) throw new Error('Failed to fetch client profile');
@@ -62,10 +59,7 @@ function ClientDashboard() {
       try {
         const response = await fetch('/api/cases', {
           method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('userToken')}`,
-          },
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
         });
 
@@ -84,7 +78,6 @@ function ClientDashboard() {
             status: c.status,
             lawyers: c.lawyers || 'N/A',
             courtName: c.courtName || 'N/A',
-            nextHearing: c.nextHearing || 'N/A',
             history: c.history || [],
             evidence: c.evidence || [],
             witnesses: c.witnesses || [],

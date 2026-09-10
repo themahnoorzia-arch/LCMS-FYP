@@ -221,6 +221,26 @@ def schedule_hearing():
         if cur.fetchone():
             return jsonify({"error": "You already have another hearing scheduled at that date and time"}), 409
 
+        # A case participant can't be in two hearings at once, even across
+        # two different cases with two different judges — same double-
+        # booking rule as the judge check above, just keyed on the
+        # participant instead. Hearings on the same date at different times
+        # are unaffected; this only rejects an exact date+time collision.
+        cur.execute(
+            """SELECT 1 FROM hearings h
+               JOIN caseparticipantaccess cpa_other ON cpa_other.caseid = h.caseid
+               WHERE h.hearingstatus = 'scheduled'
+                 AND h.hearingdate = %s
+                 AND h.hearingtime = %s
+                 AND h.caseid != %s
+                 AND cpa_other.participantid IN (
+                     SELECT participantid FROM caseparticipantaccess WHERE caseid = %s
+                 )""",
+            (hearingdate, hearingtime, caseid, caseid),
+        )
+        if cur.fetchone():
+            return jsonify({"error": "This case participant already has another hearing scheduled at this date and time"}), 409
+
         # nextval() is atomic — safe against two requests picking the same id,
         # unlike the previous SELECT MAX(hearingid)+1 pattern.
         cur.execute("SELECT nextval('hearings_hearingid_seq')")
@@ -271,6 +291,11 @@ def schedule_hearing():
     except Exception as e:
         if conn:
             conn.rollback()
+        # Duplicate submission (e.g. a double-click) racing past the
+        # SELECT-based check above — hearings_one_scheduled_per_case is the
+        # real DB-level backstop against two scheduled hearings on one case.
+        if "hearings_one_scheduled_per_case" in str(e):
+            return jsonify({"error": "A hearing is already scheduled for this case"}), 409
         return jsonify({"error": str(e)}), 500
     finally:
         if conn:
@@ -293,26 +318,58 @@ def reschedule_hearing(hearing_id):
     try:
         conn = get_pg_connection()
         cur = conn.cursor()
+
         cur.execute(
-            """UPDATE hearings h
-               SET hearingdate = %s, hearingtime = %s
-               FROM judge j
-               WHERE h.judgeid = j.judgeid
-                 AND h.hearingid = %s
-                 AND j.userid = %s
-                 AND h.hearingstatus = 'scheduled'
-               RETURNING h.caseid""",
-            (hearingdate, hearingtime, hearing_id, current_user.userid),
+            """SELECT h.caseid, j.judgeid FROM hearings h
+               JOIN judge j ON j.judgeid = h.judgeid
+               WHERE h.hearingid = %s AND j.userid = %s AND h.hearingstatus = 'scheduled'""",
+            (hearing_id, current_user.userid),
         )
-        updated = cur.fetchone()
-        if not updated:
+        hearing_row = cur.fetchone()
+        if not hearing_row:
             return jsonify({"error": "Scheduled hearing not found or not assigned to you"}), 404
+        caseid, judgeid = hearing_row
+
+        # Same double-booking rules enforced when a hearing is first
+        # scheduled (see schedule_hearing above) — a reschedule must not be
+        # able to create a collision either. Both checks exclude this
+        # hearing's own row, since it already occupies its *old* slot.
+        cur.execute(
+            """SELECT 1 FROM hearings
+               WHERE judgeid = %s AND hearingdate = %s AND hearingtime = %s
+                 AND hearingstatus = 'scheduled' AND hearingid != %s""",
+            (judgeid, hearingdate, hearingtime, hearing_id),
+        )
+        if cur.fetchone():
+            return jsonify({"error": "You already have another hearing scheduled at that date and time"}), 409
+
+        cur.execute(
+            """SELECT 1 FROM hearings h
+               JOIN caseparticipantaccess cpa_other ON cpa_other.caseid = h.caseid
+               WHERE h.hearingstatus = 'scheduled'
+                 AND h.hearingdate = %s
+                 AND h.hearingtime = %s
+                 AND h.caseid != %s
+                 AND h.hearingid != %s
+                 AND cpa_other.participantid IN (
+                     SELECT participantid FROM caseparticipantaccess WHERE caseid = %s
+                 )""",
+            (hearingdate, hearingtime, caseid, hearing_id, caseid),
+        )
+        if cur.fetchone():
+            return jsonify({"error": "This case participant already has another hearing scheduled at this date and time"}), 409
+
+        cur.execute(
+            """UPDATE hearings SET hearingdate = %s, hearingtime = %s
+               WHERE hearingid = %s""",
+            (hearingdate, hearingtime, hearing_id),
+        )
         conn.commit()
         return jsonify({
             "message": "Hearing updated successfully",
             "hearing": {
                 "hearingid": hearing_id,
-                "caseid": updated[0],
+                "caseid": caseid,
                 "hearingdate": hearingdate,
                 "hearingtime": hearingtime,
                 "hearingstatus": "scheduled",

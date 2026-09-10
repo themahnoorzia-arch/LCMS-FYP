@@ -457,6 +457,11 @@ def complete_profile():
         err_text = str(e)
         if "lawyer_barlicenseno_key" in err_text:
             message = "This bar license number is already registered to another account. Please double-check it and try again."
+        elif "_userid_key" in err_text:
+            # Duplicate submission (e.g. a double-click) racing past the
+            # otp_verified_user_id check before the first request's commit
+            # cleared it — the profile was already completed once.
+            message = "Your profile has already been completed. Please try logging in."
         else:
             message = "Something went wrong while completing your profile. Please try again."
             current_app.logger.error("complete_profile failed: %s", err_text)

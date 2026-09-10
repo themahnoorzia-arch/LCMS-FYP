@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Container, Table, Form, Card, Image, Spinner, Alert,
+  Table, Form, Card, Spinner, Alert,
   Badge, Button, Modal, Row, Col, InputGroup,
 } from 'react-bootstrap';
 import { LogOut, Users, FileText, ClipboardList, LayoutDashboard, UserCheck, Building2, Plus, Trash2 } from 'lucide-react';
@@ -10,7 +10,7 @@ import { LogOut, Users, FileText, ClipboardList, LayoutDashboard, UserCheck, Bui
 
 const statusBadge = (status) => {
   const map = {
-    Open: 'primary', Pending: 'warning', Closed: 'success',
+    Open: 'success', Pending: 'warning', Closed: 'secondary',
     Success: 'success', Error: 'danger', scheduled: 'secondary',
   };
   return <Badge bg={map[status] || 'secondary'}>{status}</Badge>;

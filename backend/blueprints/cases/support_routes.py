@@ -302,6 +302,21 @@ def create_evidence_for_lawyer():
         if len(rows) > 1:
             return jsonify({"message": "More than one assigned case has that name"}), 409
         case_id = rows[0]["caseid"]
+
+        # Idempotency guard against double-click / double-submit: an
+        # evidence row identical in every field for this case is almost
+        # certainly a resubmission, not a genuinely distinct new item.
+        cur.execute(
+            """SELECT evidenceid FROM evidence
+               WHERE caseid = %s AND evidencetype = %s AND description = %s
+                 AND submitteddate = %s
+               ORDER BY evidenceid DESC LIMIT 1""",
+            (case_id, evidence_type, description, submitted_date),
+        )
+        dup = cur.fetchone()
+        if dup:
+            return jsonify({"message": "Evidence added successfully", "id": dup["evidenceid"]}), 201
+
         cur.execute(
             """INSERT INTO evidence (caseid, evidencetype, description, submitteddate)
                VALUES (%s,%s,%s,%s) RETURNING evidenceid""",

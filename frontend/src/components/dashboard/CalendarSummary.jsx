@@ -1,15 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, ListGroup, Badge, Button, Modal, Form } from 'react-bootstrap';
-import { Calendar as CalendarIcon, Clock, MapPin, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { Card, Row, Col, ListGroup, Badge, Button, Modal } from 'react-bootstrap';
+import { Calendar as CalendarIcon, Clock, MapPin, ChevronLeft, ChevronRight } from 'lucide-react';
 import moment from 'moment';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './CalendarSummary.css';
-
-const EVENT_TYPES = [
-  { label: 'Court Date', value: 'Court Date' },
-  { label: 'Meeting', value: 'Meeting' },
-  { label: 'Deadline', value: 'Deadline' },
-];
 
 const CalendarSummary = () => {
   const [currentDate, setCurrentDate] = useState(moment());
@@ -74,14 +68,9 @@ useEffect(() => {
     return events.filter(event => event.date.isSame(day, 'day'));
   };
 
-  const getEventBadgeVariant = (type) => {
-    switch (type) {
-      case 'Court Date': return 'danger';
-      case 'Meeting': return 'primary';
-      case 'Deadline': return 'warning';
-      default: return 'info';
-    }
-  };
+  // Every hearing is mapped to type 'Court Date' below — no other event type
+  // is currently produced, so this only needs the one real case.
+  const getEventBadgeVariant = (type) => (type === 'Court Date' ? 'danger' : 'info');
 
   const handlePrevMonth = () => {
     setCurrentDate(moment(currentDate).subtract(1, 'month'));
