@@ -1562,4 +1562,3 @@ def get_case_history(case_id):
     finally:
         if conn:
             conn.close()
-

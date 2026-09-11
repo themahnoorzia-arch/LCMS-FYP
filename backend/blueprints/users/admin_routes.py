@@ -172,6 +172,25 @@ def admin_delete_user(user_id):
                     "error": f"This lawyer still represents a party on {len(active)} active case(s) "
                              f"({', '.join(active)}) — reassign counsel before deleting this account."
                 }), 409
+        elif user["role"] == "CaseParticipant":
+            # Same protection as Judge/Lawyer above — without it, deleting a
+            # client silently detached them from every case they were on,
+            # active or not, leaving the case with no client attached.
+            cur.execute(
+                """
+                SELECT c.title FROM caseparticipantaccess cpa
+                JOIN caseparticipant cp ON cp.participantid = cpa.participantid
+                JOIN cases c ON c.caseid = cpa.caseid
+                WHERE cp.userid = %s AND LOWER(c.status) != 'closed'
+                """,
+                (user_id,),
+            )
+            active = [r["title"] for r in cur.fetchall()]
+            if active:
+                return jsonify({
+                    "error": f"This client is still party to {len(active)} active case(s) "
+                             f"({', '.join(active)}) — those cases must be closed before deleting this account."
+                }), 409
 
         cur.execute("DELETE FROM users WHERE userid = %s", (user_id,))
         conn.commit()

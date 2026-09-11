@@ -402,6 +402,57 @@ def ensure_one_scheduled_hearing_per_case():
             conn.close()
 
 
+def ensure_hearing_survives_judge_deletion():
+    """A hearing's record (date, time, venue, remarks) is part of the case's
+    permanent history — it shouldn't be destroyed just because the presiding
+    judge's account is later deleted. hearings.judgeid was ON DELETE CASCADE,
+    which deleted the hearing itself; this changes it to SET NULL, matching
+    how payments.lawyerid and caseparticipant.lawyerid already behave
+    (unlink the person, keep the record). The column has to allow NULL
+    first for that action to succeed at delete time."""
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE hearings ALTER COLUMN judgeid DROP NOT NULL")
+        cur.execute("ALTER TABLE hearings DROP CONSTRAINT IF EXISTS hearings_judgeid_fkey")
+        cur.execute(
+            "ALTER TABLE hearings ADD CONSTRAINT hearings_judgeid_fkey "
+            "FOREIGN KEY (judgeid) REFERENCES judge(judgeid) ON DELETE SET NULL"
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.error("ensure_hearing_survives_judge_deletion failed: %s", exc)
+    finally:
+        if conn:
+            conn.close()
+
+
+def ensure_case_lawyer_link_survives_lawyer_deletion():
+    """Same reasoning as above, for a case's lawyer-side record: which side
+    (petitioner/respondent) had counsel shouldn't disappear from a closed
+    case's history just because that lawyer's account is later deleted.
+    caselawyeraccess.lawyerid was ON DELETE CASCADE (dropped the whole row,
+    losing the side); this changes it to SET NULL so the row — and the side
+    it recorded — survives with the lawyer unlinked instead."""
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE caselawyeraccess ALTER COLUMN lawyerid DROP NOT NULL")
+        cur.execute("ALTER TABLE caselawyeraccess DROP CONSTRAINT IF EXISTS lawyeraccessfk")
+        cur.execute(
+            "ALTER TABLE caselawyeraccess ADD CONSTRAINT lawyeraccessfk "
+            "FOREIGN KEY (lawyerid) REFERENCES lawyer(lawyerid) ON DELETE SET NULL"
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.error("ensure_case_lawyer_link_survives_lawyer_deletion failed: %s", exc)
+    finally:
+        if conn:
+            conn.close()
+
+
 def run_all():
     remove_documents_module()
     remove_appeals_module()
@@ -420,3 +471,5 @@ def run_all():
     ensure_unique_courtname()
     ensure_unique_courtroom_number()
     ensure_one_scheduled_hearing_per_case()
+    ensure_hearing_survives_judge_deletion()
+    ensure_case_lawyer_link_survives_lawyer_deletion()
