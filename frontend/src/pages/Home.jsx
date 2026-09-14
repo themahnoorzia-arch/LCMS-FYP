@@ -53,7 +53,7 @@ const Home = () => {
             <Col md={6} className="mb-4 mb-md-0 text-center text-md-start">
               <h1 className="display-4 fw-bold mb-3 hero-gradient-text">Simplify Your Case Management</h1>
               <p className="lead mb-4">
-                LegalEase offers a modern, intuitive platform designed for legal professionals. Streamline workflows, manage clients, and access documents securely—anytime, anywhere.
+                LegalEase offers a modern, intuitive platform designed for legal professionals. Streamline workflows, manage clients, and track cases securely—anytime, anywhere.
               </p>
               <div className="d-grid gap-2 d-md-flex justify-content-md-start">
                 <Link to="/signup" className="btn btn-primary btn-lg px-4 me-md-2">Get Started</Link>

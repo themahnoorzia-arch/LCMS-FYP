@@ -158,16 +158,33 @@ def approve_join_request(lawyerid, caseid):
             return jsonify({'error': 'Case is not assigned to your court'}), 403
 
         cur.execute(
+            "SELECT pending_participantid FROM caselawyeraccess "
+            "WHERE lawyerid = %s AND caseid = %s AND LOWER(status) = 'pending'",
+            (lawyerid, caseid),
+        )
+        pending_row = cur.fetchone()
+        if not pending_row:
+            conn.rollback()
+            return jsonify({'error': 'Join request not found'}), 404
+
+        cur.execute(
             """
             UPDATE caselawyeraccess
-            SET status = 'approved', is_lead = FALSE
+            SET status = 'approved', is_lead = FALSE, pending_participantid = NULL
             WHERE lawyerid = %s AND caseid = %s AND LOWER(status) = 'pending'
             """,
             (lawyerid, caseid),
         )
-        if cur.rowcount == 0:
+
+        # Only now — on actual approval — does the requested client get
+        # linked to the case.
+        from blueprints.cases.case_routes import _link_existing_participant
+        ok, err = _link_existing_participant(
+            cur, pending_row['pending_participantid'], caseid, lawyerid
+        )
+        if not ok:
             conn.rollback()
-            return jsonify({'error': 'Join request not found'}), 404
+            return jsonify({'error': err}), 400
 
         conn.commit()
 

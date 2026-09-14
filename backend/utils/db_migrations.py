@@ -85,6 +85,28 @@ def remove_remands_module():
             conn.close()
 
 
+def ensure_join_request_pending_participant():
+    """A join request's chosen client shouldn't be linked to the case (via
+    caseparticipantaccess) until the registrar actually approves it — doing
+    it at submission time exposed the case to a client before any lawyer
+    was confirmed on it. This column holds the requested client until
+    approval links them for real; rejection just deletes the whole row."""
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "ALTER TABLE caselawyeraccess ADD COLUMN IF NOT EXISTS "
+            "pending_participantid BIGINT REFERENCES caseparticipant(participantid) ON DELETE SET NULL"
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.error("ensure_join_request_pending_participant failed: %s", exc)
+    finally:
+        if conn:
+            conn.close()
+
+
 def ensure_lawyer_case_status():
     """Make ordinary lawyer links approved; join requests opt into pending."""
     conn = None
@@ -453,11 +475,46 @@ def ensure_case_lawyer_link_survives_lawyer_deletion():
             conn.close()
 
 
+def ensure_finaldecision_id_sequence():
+    """finaldecision.decisionid is a plain NOT NULL bigint with no default
+    at all — add_final_decision() inserts caseid/summary/verdict/date and
+    expects the database to supply decisionid, which it never could,
+    guaranteeing a "null value in column decisionid violates not-null
+    constraint" error on every single attempt. Giving the column a real
+    sequence-backed default (same fix already applied to hearings.hearingid)
+    means the existing INSERT just works, with no route-code change needed."""
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor()
+        cur.execute("CREATE SEQUENCE IF NOT EXISTS finaldecision_decisionid_seq")
+        cur.execute(
+            "SELECT setval('finaldecision_decisionid_seq', "
+            "COALESCE((SELECT MAX(decisionid) FROM finaldecision), 1), "
+            "(SELECT MAX(decisionid) FROM finaldecision) IS NOT NULL)"
+        )
+        cur.execute(
+            "ALTER TABLE finaldecision ALTER COLUMN decisionid "
+            "SET DEFAULT nextval('finaldecision_decisionid_seq')"
+        )
+        cur.execute(
+            "ALTER SEQUENCE finaldecision_decisionid_seq "
+            "OWNED BY finaldecision.decisionid"
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.error("ensure_finaldecision_id_sequence failed: %s", exc)
+    finally:
+        if conn:
+            conn.close()
+
+
 def run_all():
     remove_documents_module()
     remove_appeals_module()
     remove_bail_surety_module()
     remove_remands_module()
+    ensure_join_request_pending_participant()
     ensure_lawyer_case_status()
     ensure_unique_user_email()
     ensure_user_approval_status()
@@ -473,3 +530,4 @@ def run_all():
     ensure_one_scheduled_hearing_per_case()
     ensure_hearing_survives_judge_deletion()
     ensure_case_lawyer_link_survives_lawyer_deletion()
+    ensure_finaldecision_id_sequence()

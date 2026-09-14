@@ -1615,7 +1615,7 @@ const handleOpenAssignJudge = () => {
         <td>{payment.clientName || 'N/A'}</td>  {/* Assuming you handle clientName properly */}
         <td>{payment.paymentType}</td>
         <td>{payment.purpose}</td>
-        <td>${payment.amount}</td>
+        <td>PKR {Number(payment.amount || 0).toLocaleString()}</td>
         <td>{payment.mode}</td>
         <td>{payment.paymentDate}</td>
         <td>

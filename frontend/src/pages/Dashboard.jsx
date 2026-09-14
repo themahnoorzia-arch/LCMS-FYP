@@ -477,7 +477,7 @@ const Dashboard = () => {
                               <Button variant="link" size="sm" onClick={() => handleViewHistory(case_)}>View</Button>
                             </td>
                             <td>
-                              {isPending ? (
+                              {isPending || case_.status === 'Closed' ? (
                                 <span className="text-muted">-</span>
                               ) : (
                                 <Button

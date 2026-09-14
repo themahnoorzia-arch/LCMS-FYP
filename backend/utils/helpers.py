@@ -146,6 +146,24 @@ def serialize_date(
     return value.isoformat()
 
 
+def serialize_utc_datetime(value: datetime.datetime | None) -> str | None:
+    """
+    Return an ISO-8601 string for a datetime that is known to be UTC, marked
+    as such with a trailing 'Z'. Our timestamp columns are stored naive
+    (no tzinfo) but the DB session runs in UTC, so plain .isoformat() sends
+    a browser a string with no timezone marker at all — JavaScript's Date
+    parser then reads it as *local* time, silently shifting every displayed
+    timestamp by the viewer's own UTC offset. Marking it explicitly fixes
+    that without touching any frontend code.
+
+    >>> serialize_utc_datetime(datetime.datetime(2024, 1, 15, 6, 21))
+    '2024-01-15T06:21:00Z'
+    """
+    if value is None:
+        return None
+    return value.isoformat() + "Z"
+
+
 def serialize_time(value: datetime.time | None) -> str | None:
     """
     Return an ISO-8601 time string, or None if falsy.

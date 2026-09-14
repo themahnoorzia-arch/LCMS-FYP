@@ -4,6 +4,7 @@ from flask_login import login_required, current_user
 
 from blueprints.notifications import notifications_bp
 from db.db import get_pg_connection
+from utils.helpers import serialize_utc_datetime
 
 
 @notifications_bp.route("/api/notifications", methods=["GET"])
@@ -28,7 +29,7 @@ def get_notifications():
         for r in rows:
             row = dict(r)
             if row.get("created_at"):
-                row["created_at"] = row["created_at"].isoformat()
+                row["created_at"] = serialize_utc_datetime(row["created_at"])
             result.append(row)
         return jsonify({"notifications": result}), 200
     except Exception as e:

@@ -5,6 +5,7 @@ from flask_login import login_required, current_user
 
 from blueprints.users import users_bp
 from db.db import get_pg_connection
+from utils.helpers import serialize_utc_datetime
 
 
 def _require_admin():
@@ -108,7 +109,7 @@ def admin_list_users():
                 "cnic":           r["cnic"] or "—",
                 "role":           r["role"],
                 "specialization": r["specialization"] or "—",
-                "joinedAt":       r["createdat"].isoformat() if r["createdat"] else None,
+                "joinedAt":       serialize_utc_datetime(r["createdat"]),
             })
         return jsonify({"users": result}), 200
     except Exception as exc:
@@ -237,7 +238,7 @@ def admin_list_pending_approvals():
             "phone": r["phoneno"],
             "cnic": r["cnic"],
             "role": r["role"],
-            "requestedAt": r["createdat"].isoformat() if r["createdat"] else None,
+            "requestedAt": serialize_utc_datetime(r["createdat"]),
         } for r in rows]
         return jsonify({"pending": result}), 200
     except Exception as exc:
@@ -480,47 +481,6 @@ def admin_reject_user(user_id):
     finally:
         if conn:
             conn.close()
-
-
-@users_bp.route("/api/admin/users/<int:user_id>/role", methods=["PATCH"])
-@login_required
-def admin_change_role(user_id):
-    err = _require_admin()
-    if err:
-        return err
-    data = request.get_json() or {}
-    new_role = data.get("role", "").strip()
-    valid_roles = ["Admin", "CourtRegistrar", "CaseParticipant", "Lawyer", "Judge"]
-    if new_role not in valid_roles:
-        return jsonify({"error": f"Invalid role. Must be one of: {', '.join(valid_roles)}"}), 400
-    conn = None
-    try:
-        conn = get_pg_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute(
-            "UPDATE users SET role = %s WHERE userid = %s RETURNING firstname, lastname",
-            (new_role, user_id),
-        )
-        updated = cur.fetchone()
-        if not updated:
-            return jsonify({"error": "User not found"}), 404
-        conn.commit()
-
-        from utils.logging import write_log
-        write_log(
-            "UPDATE",
-            f"Admin changed role of {updated['firstname']} {updated['lastname']} to {new_role}",
-            "user",
-        )
-        return jsonify({"message": "Role updated"}), 200
-    except Exception as exc:
-        if conn:
-            conn.rollback()
-        return jsonify({"error": str(exc)}), 500
-    finally:
-        if conn:
-            conn.close()
-
 
 # ── All cases overview ───────────────────────────────────────────────────────
 

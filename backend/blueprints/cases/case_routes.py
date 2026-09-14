@@ -590,19 +590,26 @@ def join_case_request():
             }), 409
 
         cur.execute(
-            """
-            INSERT INTO caselawyeraccess (caseid, lawyerid, side, is_lead, status)
-            VALUES (%s, %s, %s, FALSE, 'pending')
-            ON CONFLICT (caseid, lawyerid) DO UPDATE
-            SET side = EXCLUDED.side, status = EXCLUDED.status
-            """,
-            (caseid, lawyerid, side),
+            "SELECT participantid FROM caseparticipant WHERE participantid = %s",
+            (participant_id,),
         )
+        if not cur.fetchone():
+            return jsonify({'message': 'Selected client was not found. Please pick a registered client.'}), 400
 
-        ok, err = _link_existing_participant(cur, participant_id, caseid, lawyerid)
-        if not ok:
-            conn.rollback()
-            return jsonify({'message': err}), 400
+        # Don't link the client to the case yet — only store which client
+        # was requested. The actual caseparticipantaccess link is created
+        # on approval, not here, so a pending request can't expose the case
+        # to a client before a lawyer is confirmed on it.
+        cur.execute(
+            """
+            INSERT INTO caselawyeraccess (caseid, lawyerid, side, is_lead, status, pending_participantid)
+            VALUES (%s, %s, %s, FALSE, 'pending', %s)
+            ON CONFLICT (caseid, lawyerid) DO UPDATE
+            SET side = EXCLUDED.side, status = EXCLUDED.status,
+                pending_participantid = EXCLUDED.pending_participantid
+            """,
+            (caseid, lawyerid, side, participant_id),
+        )
 
         conn.commit()
 
@@ -757,6 +764,8 @@ def update_case(case_id):
         elif role == "Lawyer":
             if not _lawyer_on_case(db, userid, case_id):
                 return jsonify({'message': 'You are not assigned to this case'}), 403
+            if case.status == 'Closed':
+                return jsonify({'message': 'This case is closed and can no longer be edited'}), 403
             data.pop('status', None)  # lawyers can't change case status here
         else:
             return jsonify({'message': 'You do not have permission to edit this case'}), 403
@@ -1274,6 +1283,18 @@ def verify_case():
                 "INSERT INTO judgeaccess (judgeid, caseid) "
                 "VALUES (%s, %s) ON CONFLICT DO NOTHING",
                 (judge_row['judgeid'], caseid)
+            )
+
+            # Move this case's still-upcoming hearings to the newly
+            # assigned judge too, so a reassignment doesn't leave a
+            # hearing stuck showing the old judge while they've lost
+            # access to the case itself. Hearings that already happened
+            # (not 'scheduled' anymore) are left alone — that's accurate
+            # history of who actually held them.
+            cur.execute(
+                "UPDATE hearings SET judgeid = %s "
+                "WHERE caseid = %s AND hearingstatus = 'scheduled'",
+                (judge_row['judgeid'], caseid),
             )
 
         # Resolve and assign prosecutor by name (optional) — same

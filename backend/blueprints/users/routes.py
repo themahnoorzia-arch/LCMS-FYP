@@ -17,6 +17,7 @@ from utils.validators import (
     is_valid_email,
     is_adult_dob,
 )
+from utils.helpers import serialize_utc_datetime
 
 
 def _apply_identity_field_updates(db, user, data):
@@ -467,9 +468,7 @@ def get_logs():
                 "actiontype": row["actiontype"],
                 "description": row["description"],
                 "status": row["status"],
-                "actiontimestamp": row["actiontimestamp"].isoformat()
-                if row["actiontimestamp"]
-                else None,
+                "actiontimestamp": serialize_utc_datetime(row["actiontimestamp"]),
                 "entitytype": row["entitytype"],
                 "admin": {"adminid": row["admin_adminid"]},
             }

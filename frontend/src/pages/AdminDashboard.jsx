@@ -56,7 +56,6 @@ const AdminDashboard = () => {
   const [searchLog, setSearchLog] = useState('');
 
   // role change modal
-  const [roleModal, setRoleModal] = useState({ show: false, user: null, newRole: '' });
   const [deleteModal, setDeleteModal] = useState({ show: false, user: null });
   const [actionMsg, setActionMsg] = useState(null);
 
@@ -148,26 +147,7 @@ const AdminDashboard = () => {
     setDeleteModal({ show: false, user: null });
   };
 
-  const confirmRoleChange = async () => {
-    const { user, newRole } = roleModal;
-    if (!user || !newRole) return;
-    try {
-      const res = await fetch(`/api/admin/users/${user.userid}/role`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ role: newRole }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setUsers(prev => prev.map(u => u.userid === user.userid ? { ...u, role: newRole } : u));
-      setActionMsg({ type: 'success', text: `Role updated to ${newRole} for "${user.name}".` });
-    } catch (e) {
-      setActionMsg({ type: 'danger', text: e.message });
-    }
-    setRoleModal({ show: false, user: null, newRole: '' });
-  };
-
+  
   const handleApproval = async (user, action, body) => {
     try {
       const res = await fetch(`/api/admin/users/${user.userid}/${action}`, {
@@ -433,13 +413,6 @@ const AdminDashboard = () => {
                 <td className="text-muted small">{fmtDate(u.joinedAt)}</td>
                 <td>
                   <div className="d-flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="outline-primary"
-                      onClick={() => setRoleModal({ show: true, user: u, newRole: u.role })}
-                    >
-                      Change Role
-                    </Button>
                     <Button
                       size="sm"
                       variant="outline-danger"
@@ -731,26 +704,6 @@ const AdminDashboard = () => {
           </Card>
         </div>
       </div>
-
-      {/* Role change modal */}
-      <Modal show={roleModal.show} onHide={() => setRoleModal({ show: false, user: null, newRole: '' })} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>Change Role — {roleModal.user?.name}</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <Form.Label>New Role</Form.Label>
-          <Form.Select value={roleModal.newRole} onChange={e => setRoleModal(p => ({ ...p, newRole: e.target.value }))}>
-            {['Admin', 'CourtRegistrar', 'Judge', 'Lawyer', 'CaseParticipant'].map(r => (
-              <option key={r} value={r}>{r}</option>
-            ))}
-          </Form.Select>
-          <div className="text-muted small mt-2">Current role: {roleModal.user?.role}</div>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => setRoleModal({ show: false, user: null, newRole: '' })}>Cancel</Button>
-          <Button variant="primary" onClick={confirmRoleChange}>Save</Button>
-        </Modal.Footer>
-      </Modal>
 
       {/* Delete confirm modal */}
       <Modal show={deleteModal.show} onHide={() => setDeleteModal({ show: false, user: null })} centered>
