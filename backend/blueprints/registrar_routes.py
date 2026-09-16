@@ -158,7 +158,7 @@ def approve_join_request(lawyerid, caseid):
             return jsonify({'error': 'Case is not assigned to your court'}), 403
 
         cur.execute(
-            "SELECT pending_participantid FROM caselawyeraccess "
+            "SELECT pending_participantid, side FROM caselawyeraccess "
             "WHERE lawyerid = %s AND caseid = %s AND LOWER(status) = 'pending'",
             (lawyerid, caseid),
         )
@@ -177,10 +177,11 @@ def approve_join_request(lawyerid, caseid):
         )
 
         # Only now — on actual approval — does the requested client get
-        # linked to the case.
+        # linked to the case, tagged with the same side as the approved
+        # lawyer so the Lawyer/Registrar portals can resolve them correctly.
         from blueprints.cases.case_routes import _link_existing_participant
         ok, err = _link_existing_participant(
-            cur, pending_row['pending_participantid'], caseid, lawyerid
+            cur, pending_row['pending_participantid'], caseid, lawyerid, pending_row['side']
         )
         if not ok:
             conn.rollback()

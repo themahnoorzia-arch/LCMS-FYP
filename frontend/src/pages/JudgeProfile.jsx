@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Container, Row, Col, Card, Form, Button, Image } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Mail, Phone, MapPin, Briefcase, Award, Upload, User } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, MapPin, Briefcase, Award, Upload, User, Calendar } from 'lucide-react';
 
 const onlyDigits = (value) => (value || '').replace(/\D/g, '');
 const isEmailValid = (email) => /\S+@\S+\.\S+/.test(email || '');
@@ -39,6 +39,7 @@ const JudgeProfile = () => {
     dob: '',
     position: '',
     experience: '',
+    appointmentDate: '',
   };
 
   const [profileData, setProfileData] = useState(emptyProfile);
@@ -67,6 +68,7 @@ const JudgeProfile = () => {
           dob: data.dob || '',
           position: data.position || '',
           experience: data.expyears ?? '',
+          appointmentDate: data.appointmentdate || '',
         };
         setProfileData(mapped);
         setOriginalProfile(mapped);
@@ -254,9 +256,13 @@ const JudgeProfile = () => {
                     <Briefcase size={14} className="me-2" style={{ color: '#1ec6b6' }} />
                     {profileData.experience} Years Experience
                   </p>
-                  <p className="mb-0">
+                  <p className="mb-2">
                     <Award size={14} className="me-2" style={{ color: '#1ec6b6' }} />
                     Specialization: {profileData.specialization}
+                  </p>
+                  <p className="mb-0">
+                    <Calendar size={14} className="me-2" style={{ color: '#1ec6b6' }} />
+                    Appointed: {profileData.appointmentDate}
                   </p>
                 </div>
               </Card.Body>

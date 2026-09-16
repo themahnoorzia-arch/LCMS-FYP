@@ -66,12 +66,16 @@ def _lawyer_on_case(db, userid, case_id):
     )
 
 
-def _link_existing_participant(cur, participantid, caseid, lawyerid):
+def _link_existing_participant(cur, participantid, caseid, lawyerid, side=None):
     """Link an already-registered client (an existing `caseparticipant` row,
     created when that client signed up) to a case. Never creates a new user
     or participant record — the client must already exist in the system.
     Also tags the participant with the lawyer who brought them onto this
-    case, so multi-party cases can tell which client belongs to which side.
+    case (a sticky, per-person tag — see caseparticipant.lawyerid) and,
+    separately, stores which side they're on *for this case* — the
+    case-specific signal the Lawyer/Registrar portals should actually use
+    to resolve a client, since the sticky tag alone breaks down once a
+    client is on more than one case.
     Returns (ok, error_message)."""
 
     if not participantid:
@@ -90,11 +94,12 @@ def _link_existing_participant(cur, participantid, caseid, lawyerid):
     )
     cur.execute(
         """
-        INSERT INTO caseparticipantaccess (participantid, caseid)
-        VALUES (%s, %s)
-        ON CONFLICT DO NOTHING
+        INSERT INTO caseparticipantaccess (participantid, caseid, side)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (caseid, participantid) DO UPDATE
+        SET side = EXCLUDED.side
         """,
-        (participantid, caseid),
+        (participantid, caseid, side),
     )
     return True, None
 
@@ -149,7 +154,13 @@ def _serialize_lawyer_case(db, case, lawyerid=None, access_status=None, access_s
 
     client_name = "N/A"
     participant = None
-    if lawyerid is not None:
+    if access_side:
+        # Case-specific match: this lawyer's own side on THIS case, matched
+        # against the participant's own side on THIS case. Does not depend
+        # on caseparticipant.lawyerid — that's a single, sticky, per-person
+        # tag (set once, never updated) that breaks down as soon as a
+        # client is on more than one case, since it can only ever point to
+        # one lawyer across their entire history, not per case.
         participant = (
             db.query(Caseparticipant)
             .join(
@@ -158,16 +169,18 @@ def _serialize_lawyer_case(db, case, lawyerid=None, access_status=None, access_s
             )
             .filter(
                 t_caseparticipantaccess.c.caseid == case.caseid,
-                Caseparticipant.lawyerid == lawyerid,
+                t_caseparticipantaccess.c.side == access_side,
             )
             .first()
         )
     if not participant and len(case.lawyer) <= 1:
         # Fall back to "whichever participant is on the case" only for a
-        # true single-lawyer legacy case that predates per-lawyer client
-        # tagging. Once a second lawyer is on the case (a real two-sided
-        # case), guessing here would show one lawyer the other side's
-        # client — safer to leave it "N/A" than show something wrong.
+        # true single-lawyer case, or one whose participant row predates
+        # this side column (still NULL) — safe because there's only one
+        # lawyer, so there's no ambiguity about who the client belongs to.
+        # Once a second lawyer is on the case (a real two-sided case),
+        # guessing here would show one lawyer the other side's client —
+        # safer to leave it "N/A" than show something wrong.
         access_row = db.execute(
             t_caseparticipantaccess.select().where(
                 t_caseparticipantaccess.c.caseid == case.caseid
@@ -216,12 +229,9 @@ def _serialize_registrar_case(db, case):
     client on the case (not just the first one), tagged with their side, so a
     case with opposing counsel on both sides shows both."""
 
-    # Every approved lawyer on the case, tagged with side. Also build a
-    # lawyerid -> side map so clients (who don't have a side of their own)
-    # can be tagged via the lawyer who brought them in.
+    # Every approved lawyer on the case, tagged with side.
     lawyer_labels = []
     lawyers_structured = []
-    side_by_lawyerid = {}
     access_rows = db.execute(
         t_caselawyeraccess.select().where(
             t_caselawyeraccess.c.caseid == case.caseid
@@ -230,7 +240,6 @@ def _serialize_registrar_case(db, case):
     for row in access_rows:
         if (row.status or "approved").lower() != "approved":
             continue
-        side_by_lawyerid[row.lawyerid] = row.side
         lw = db.query(Lawyer).filter_by(lawyerid=row.lawyerid).first()
         if lw and lw.users:
             name = f"{lw.users.firstname or ''} {lw.users.lastname or ''}".strip()
@@ -244,10 +253,13 @@ def _serialize_registrar_case(db, case):
                 })
     lawyer_name = " & ".join(lawyer_labels) if lawyer_labels else "N/A"
 
-    # Every client linked to the case, tagged via their lawyer's side, and
-    # also keyed by lawyerid so the frontend can show "this lawyer's client"
-    # once a specific lawyer is picked (e.g. when creating a payment on a
-    # two-sided case).
+    # Every client linked to the case, tagged with their own case-specific
+    # side (caseparticipantaccess.side), and also keyed by lawyerid so the
+    # frontend can show "this lawyer's client" once a specific lawyer is
+    # picked (e.g. when creating a payment on a two-sided case). Matching
+    # is done by side, not by caseparticipant.lawyerid — that's a single,
+    # sticky, per-person tag that breaks down once a client is on more
+    # than one case.
     client_labels = []
     client_by_lawyerid = {}
     participant_rows = db.execute(
@@ -266,11 +278,13 @@ def _serialize_registrar_case(db, case):
             if client_user:
                 name = f"{client_user.firstname or ''} {client_user.lastname or ''}".strip()
                 if name:
-                    side = side_by_lawyerid.get(participant.lawyerid)
+                    side = prow.side
                     label = f"{name} ({side.title()})" if side else name
                     client_labels.append(label)
-                    if participant.lawyerid is not None:
-                        client_by_lawyerid[participant.lawyerid] = name
+                    if side:
+                        for entry in lawyers_structured:
+                            if entry["side"] == side:
+                                client_by_lawyerid[entry["lawyerid"]] = name
     client_name = " & ".join(client_labels) if client_labels else "N/A"
 
     for entry in lawyers_structured:
@@ -468,7 +482,7 @@ def create_case():
             )
         )
 
-        ok, err = _link_existing_participant(cur, participant_id, caseid, lawyerid)
+        ok, err = _link_existing_participant(cur, participant_id, caseid, lawyerid, side)
         if not ok:
             conn.rollback()
             return jsonify({'message': err}), 400

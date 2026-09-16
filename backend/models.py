@@ -504,6 +504,7 @@ t_caseparticipantaccess = Table(
     'caseparticipantaccess', Base.metadata,
     Column('caseid', BigInteger, primary_key=True, nullable=False),
     Column('participantid', BigInteger, primary_key=True, nullable=False),
+    Column('side', String(20)),
     ForeignKeyConstraint(['caseid'], ['cases.caseid'], ondelete='CASCADE', onupdate='CASCADE', name='caseaccesscpfk'),
     ForeignKeyConstraint(['participantid'], ['caseparticipant.participantid'], ondelete='CASCADE', onupdate='CASCADE', name='participantaccessfk'),
     PrimaryKeyConstraint('caseid', 'participantid', name='caseparticipantaccesspk')

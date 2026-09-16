@@ -107,6 +107,76 @@ def ensure_join_request_pending_participant():
             conn.close()
 
 
+def ensure_caseparticipant_side():
+    """A case-specific 'side' for each client-case link, mirroring
+    caselawyeraccess.side. Lets the Lawyer/Registrar portals resolve which
+    client belongs to which lawyer *on this case*, instead of relying on
+    caseparticipant.lawyerid — a single sticky per-person tag, set once and
+    never updated, that breaks down as soon as a client is on more than one
+    case or a case has lawyers on both sides.
+
+    Column is nullable by design. Existing rows are backfilled below only
+    where the side can be derived with certainty: a case with exactly one
+    lawyer has an unambiguous side, and a case with multiple lawyers is only
+    resolved if the participant's caseparticipant.lawyerid tag matches
+    exactly one of that case's lawyers. Anything else is left NULL rather
+    than guessed. Safe to run on every startup — already-backfilled rows
+    are skipped, and rows left NULL stay NULL until fixed by hand."""
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "ALTER TABLE caseparticipantaccess ADD COLUMN IF NOT EXISTS side VARCHAR(20)"
+        )
+        cur.execute(
+            "ALTER TABLE caseparticipantaccess DROP CONSTRAINT IF EXISTS caseparticipantaccess_side_check"
+        )
+        cur.execute(
+            "ALTER TABLE caseparticipantaccess ADD CONSTRAINT caseparticipantaccess_side_check "
+            "CHECK (side IN ('petitioner', 'respondent'))"
+        )
+
+        # Backfill only rows still missing a side.
+        cur.execute(
+            "SELECT caseid, participantid FROM caseparticipantaccess WHERE side IS NULL"
+        )
+        pending = cur.fetchall()
+        for caseid, participantid in pending:
+            cur.execute(
+                "SELECT lawyerid, side FROM caselawyeraccess WHERE caseid = %s",
+                (caseid,),
+            )
+            case_lawyers = cur.fetchall()
+            if not case_lawyers:
+                continue
+
+            if len(case_lawyers) == 1:
+                derived_side = case_lawyers[0][1]
+            else:
+                cur.execute(
+                    "SELECT lawyerid FROM caseparticipant WHERE participantid = %s",
+                    (participantid,),
+                )
+                tag_row = cur.fetchone()
+                tag_lawyerid = tag_row[0] if tag_row else None
+                matches = [l for l in case_lawyers if l[0] == tag_lawyerid]
+                derived_side = matches[0][1] if len(matches) == 1 else None
+
+            if derived_side:
+                cur.execute(
+                    "UPDATE caseparticipantaccess SET side = %s WHERE caseid = %s AND participantid = %s",
+                    (derived_side, caseid, participantid),
+                )
+
+        conn.commit()
+    except Exception as exc:
+        logger.error("ensure_caseparticipant_side failed: %s", exc)
+    finally:
+        if conn:
+            conn.close()
+
+
 def ensure_lawyer_case_status():
     """Make ordinary lawyer links approved; join requests opt into pending."""
     conn = None
@@ -515,6 +585,7 @@ def run_all():
     remove_bail_surety_module()
     remove_remands_module()
     ensure_join_request_pending_participant()
+    ensure_caseparticipant_side()
     ensure_lawyer_case_status()
     ensure_unique_user_email()
     ensure_user_approval_status()
