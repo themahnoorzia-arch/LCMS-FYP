@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Container, Row, Col, Card, Button, Modal, Form, ListGroup, Nav, Badge, Tab, Toast, Spinner, InputGroup, Table } from 'react-bootstrap';
-import { Plus, Building2, Users, Gavel, Briefcase, DollarSign, UserCheck, FileText, Search, Trash2, Edit2, ArrowLeft, User, Eye, Mail, Phone, MapPin, Award, Upload, Edit3, Save, ChevronLeft, ChevronRight, CalendarIcon, Clock } from 'lucide-react';
+import { Plus, Building2, Users, Gavel, Briefcase, DollarSign, UserCheck, FileText, Search, Trash2, Edit2, ArrowLeft, User, Eye, Mail, MapPin, Award, Upload, Edit3, Save, ChevronLeft, ChevronRight, CalendarIcon, Clock } from 'lucide-react';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import lawImage from '../assets/law.png'
 import { useLocation, useNavigate } from 'react-router-dom';
+import { performLogout } from '../utils/logout';
 import CalendarSummary from '../components/dashboard/CalendarSummary';
 import moment from 'moment';
 import '../components/dashboard/CalendarSummary.css';
@@ -229,7 +230,7 @@ const handleApproveJoinRequest = async (lawyerid, caseid) => {
     });
     if (!res.ok) {
       const err = await res.json();
-      throw new Error(err.message || 'Failed to approve');
+      throw new Error(err.error || err.message || 'Failed to approve');
     }
     showToast('Join request approved', 'success');
     await fetchJoinRequests();
@@ -253,7 +254,7 @@ const handleRejectJoinRequest = async (lawyerid, caseid) => {
     });
     if (!res.ok) {
       const err = await res.json();
-      throw new Error(err.message || 'Failed to reject');
+      throw new Error(err.error || err.message || 'Failed to reject');
     }
     showToast('Join request rejected', 'success');
     await fetchJoinRequests();
@@ -681,7 +682,21 @@ const handleRoomAdd = () => {
   ];
 
   // Filter helpers
-  const filteredRooms = courtRooms.filter(r => r.name.toLowerCase().includes(searchRoom.toLowerCase()));
+  const filteredRooms = courtRooms.filter(r => {
+    const q = searchRoom.trim().toLowerCase();
+    return String(r.number ?? '').toLowerCase().includes(q)
+      || String(r.status ?? '').toLowerCase().includes(q);
+  });
+
+  const filteredCases = courtCases.filter(c => {
+    const q = searchCase.trim().toLowerCase();
+    return (c.title || '').toLowerCase().includes(q)
+      || (c.casetype || '').toLowerCase().includes(q)
+      || (c.clientname || c.clientName || '').toLowerCase().includes(q)
+      || (c.lawyername || '').toLowerCase().includes(q)
+      || (c.judgeName || '').toLowerCase().includes(q)
+      || (c.status || '').toLowerCase().includes(q);
+  });
 
   // Case handlers
   const handleCaseEdit = (c) => {
@@ -856,10 +871,7 @@ const handleVerifySubmit = async (e) => {
   };
 
   // Logout handler
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate('/login');
-  };
+  const handleLogout = () => performLogout(navigate);
 
   // Add this handler function with other handlers
   const handleViewFinalDecision = (case_) => {
@@ -1197,7 +1209,6 @@ const handleOpenAssignJudge = () => {
                     <Card className="shadow-sm border-0 mb-4" style={{ borderRadius: 16 }}>
                       <Card.Body>
                         <h3 className="fw-bold mb-3" style={{ color: '#22304a' }}><i className="bi bi-bar-chart me-2"></i>Quick Actions</h3>
-                        <div className="mb-3 text-muted">Access key functionalities quickly.</div>
                         <div className="d-grid gap-2">
                           <Button variant="light" className="d-flex align-items-center gap-2 justify-content-start text-start border" style={{ fontWeight: 500 }}>
                             <i className="bi bi-buildings me-2" style={{ color: '#1ec6b6', fontSize: 20 }}></i> Manage Court Rooms
@@ -1256,8 +1267,12 @@ const handleOpenAssignJudge = () => {
     <tr>
       <td colSpan={4} className="text-muted text-center py-4">No court rooms found.</td>
     </tr>
+  ) : filteredRooms.length === 0 ? (
+    <tr>
+      <td colSpan={4} className="text-muted text-center py-4">No rooms match your search.</td>
+    </tr>
   ) : (
-    courtRooms.map((room, i) => (
+    filteredRooms.map((room, i) => (
       <tr key={i}>
         <td>{room.number}</td>
         <td>{room.capacity}</td>
@@ -1319,12 +1334,14 @@ const handleOpenAssignJudge = () => {
               </tr>
             </thead>
             <tbody>
-              {courtCases.length === 0 ? (
+              {filteredCases.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center text-muted py-4">No cases found.</td>
+                  <td colSpan={9} className="text-center text-muted py-4">
+                    {courtCases.length === 0 ? 'No cases found.' : 'No cases match your search.'}
+                  </td>
                 </tr>
               ) : (
-                courtCases.map((case_) => (
+                filteredCases.map((case_) => (
                   <tr key={case_.caseid}>
                     <td>{case_.title}</td>
                             <td>{case_.casetype}</td>
@@ -1351,13 +1368,15 @@ const handleOpenAssignJudge = () => {
                         ) : (
                           <Badge bg="success" className="px-2 py-1">Verified</Badge>
                         )}
-                        <Button
-                          variant="outline-primary"
-                          size="sm"
-                          onClick={() => handleCaseEdit(case_)}
-                        >
-                        Edit
-                        </Button>
+                        {case_.status !== 'Closed' && (
+                          <Button
+                            variant="outline-primary"
+                            size="sm"
+                            onClick={() => handleCaseEdit(case_)}
+                          >
+                          Edit
+                          </Button>
+                        )}
 
                       </div>
                     </td>
@@ -2143,9 +2162,6 @@ const handleOpenAssignJudge = () => {
                   <div className="d-grid gap-2 d-sm-flex justify-content-sm-center mb-3">
                     <Button variant="outline-primary" size="sm" href={`mailto:${profileData.email}`}>
                       <Mail size={16} className="me-1" /> Email
-                    </Button>
-                    <Button variant="outline-primary" size="sm" href={`tel:${profileData.phone}`}>
-                      <Phone size={16} className="me-1" /> Call
                     </Button>
                   </div>
                   <hr />

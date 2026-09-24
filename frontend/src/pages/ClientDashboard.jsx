@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { performLogout } from '../utils/logout';
 import { Card, Button, Image } from 'react-bootstrap';
 import { User } from 'lucide-react';
 import ClientCases from '../components/ClientCases';
@@ -103,10 +104,7 @@ function ClientDashboard() {
     setActiveSection('profile');
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate('/login');
-  };
+  const handleLogout = () => performLogout(navigate);
 
   return (
     <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: '#f8f9fa', display: 'flex', flexDirection: 'column' }}>

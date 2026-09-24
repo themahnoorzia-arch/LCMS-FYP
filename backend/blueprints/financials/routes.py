@@ -1,5 +1,5 @@
 import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 import psycopg2.extras
 
@@ -8,6 +8,9 @@ from flask_login import login_required, current_user
 
 from blueprints.financials import financials_bp
 from db.db import get_pg_connection
+
+# payments.balance is numeric(10,2), so this is the largest amount it can hold.
+MAX_PAYMENT_AMOUNT = Decimal("99999999.99")
 
 
 # ==========================================================
@@ -109,11 +112,24 @@ def create_payment():
     if not case_id or not purpose or balance is None:
         return jsonify({"message": "caseid, purpose, and balance are required"}), 400
 
+    # Parse as an exact decimal, not a float: float("NaN") / float("Infinity")
+    # slip past a "<= 0" check, and the database's CHECK (balance >= 0) also
+    # lets NaN through, so they must be refused here.
     try:
-        if float(balance) <= 0:
-            return jsonify({"message": "Balance must be greater than zero"}), 400
-    except (TypeError, ValueError):
+        if isinstance(balance, bool):
+            raise ValueError("boolean is not an amount")
+        amount = Decimal(str(balance))
+        if not amount.is_finite():
+            raise ValueError("amount must be a finite number")
+    except (InvalidOperation, TypeError, ValueError):
         return jsonify({"message": "Balance must be a valid number"}), 400
+    if amount <= 0:
+        return jsonify({"message": "Balance must be greater than zero"}), 400
+    if amount > MAX_PAYMENT_AMOUNT:
+        return jsonify({"message": "Balance is too large (maximum is 99,999,999.99)"}), 400
+    amount = amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if amount <= 0:
+        return jsonify({"message": "Balance must be at least 0.01"}), 400
 
     conn = None
     try:
@@ -184,7 +200,7 @@ def create_payment():
               AND status = 'Pending'
             ORDER BY paymentid DESC LIMIT 1
             """,
-            (case_id, lawyer_id, purpose, Decimal(str(balance)), payment_type),
+            (case_id, lawyer_id, purpose, amount, payment_type),
         )
         dup = cur.fetchone()
         if dup:
@@ -206,7 +222,7 @@ def create_payment():
             (
                 payment_id,
                 purpose,
-                Decimal(str(balance)),
+                amount,
                 payment_type,
                 case_id,
                 court_id,
@@ -224,7 +240,7 @@ def create_payment():
                 lr = cur.fetchone()
                 if lr:
                     push_notification(lr["userid"], "New Payment Request",
-                        f"A payment request of PKR {balance} has been sent to you for a case. Please confirm payment.",
+                        f"A payment request of PKR {amount} has been sent to you for a case. Please confirm payment.",
                         "warning", new_id)
         except Exception:
             pass

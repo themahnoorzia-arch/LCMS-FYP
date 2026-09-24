@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { performLogout } from '../utils/logout';
 import { Image, Card, Row, Col, InputGroup, Form, Button, Badge, Table, Modal, ListGroup } from 'react-bootstrap';
 import { User, PlusCircle, Search, LogOut } from 'lucide-react';
 import SidebarNav from '../components/dashboard/SidebarNav';
@@ -353,10 +354,7 @@ const Dashboard = () => {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate('/login');
-  };
+  const handleLogout = () => performLogout(navigate);
 
   const renderContent = () => {
     switch (activeView) {

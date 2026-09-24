@@ -494,6 +494,42 @@ def ensure_one_scheduled_hearing_per_case():
             conn.close()
 
 
+def ensure_hearing_status_values():
+    """The live hearings.hearingstatus CHECK constraint allowed 'postponed'
+    (which nothing in the app ever used) and rejected 'adjourned' (which the
+    Registrar UI and backend both offer), so every Adjourn attempt failed at
+    the database. Standardise on the four statuses the app actually uses:
+    scheduled, completed, adjourned, cancelled. Any leftover 'postponed' row
+    is mapped to 'adjourned' first (none exist today). Skipped when the
+    constraint is already correct, so it doesn't re-lock the table on every
+    startup."""
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+            "WHERE conrelid = 'hearings'::regclass AND conname = 'hearings_hearingstatus_check'"
+        )
+        row = cur.fetchone()
+        current = row[0] if row else ""
+        if "'adjourned'" in current and "'postponed'" not in current:
+            conn.commit()
+            return
+        cur.execute("UPDATE hearings SET hearingstatus = 'adjourned' WHERE hearingstatus = 'postponed'")
+        cur.execute("ALTER TABLE hearings DROP CONSTRAINT IF EXISTS hearings_hearingstatus_check")
+        cur.execute(
+            "ALTER TABLE hearings ADD CONSTRAINT hearings_hearingstatus_check "
+            "CHECK (hearingstatus IN ('scheduled', 'completed', 'adjourned', 'cancelled'))"
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.error("ensure_hearing_status_values failed: %s", exc)
+    finally:
+        if conn:
+            conn.close()
+
+
 def ensure_hearing_survives_judge_deletion():
     """A hearing's record (date, time, venue, remarks) is part of the case's
     permanent history — it shouldn't be destroyed just because the presiding
@@ -579,6 +615,57 @@ def ensure_finaldecision_id_sequence():
             conn.close()
 
 
+def _ensure_unique_or_report(table, column, index_name):
+    """Create a unique index on table.column — but never on top of data that
+    already violates it. If duplicate values exist, nothing is created and
+    nothing is deleted, merged or "fixed": the offending values are logged at
+    ERROR level and returned, so the caller can't mistake the table for a
+    protected one. Returns (protected, duplicates). The table/column/index
+    names are code constants, never user input."""
+    conn = None
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT {column} FROM {table} GROUP BY {column} "
+            f"HAVING COUNT(*) > 1 ORDER BY {column}"
+        )
+        duplicates = [row[0] for row in cur.fetchall()]
+        if duplicates:
+            conn.rollback()
+            logger.error(
+                "%s was NOT created: %s.%s already has duplicate values %s. "
+                "Nothing was deleted or changed — resolve those rows by hand "
+                "and restart; until then only the application-level check "
+                "protects this rule.",
+                index_name, table, column, duplicates,
+            )
+            return False, duplicates
+        cur.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON {table} ({column})")
+        conn.commit()
+        return True, []
+    except Exception as exc:
+        logger.error("%s could not be created: %s", index_name, exc)
+        return False, []
+    finally:
+        if conn:
+            conn.close()
+
+
+def ensure_one_finaldecision_per_case():
+    """Our model is one case -> at most one final decision. The endpoint
+    already refuses a second decision on a Closed case, but that is a
+    check-then-insert: two near-simultaneous submissions can both pass it
+    before either commits (and a Closed case that gets reopened would pass
+    it too). A unique index on finaldecision.caseid closes that at the
+    database level. It sits alongside the composite primary key
+    (caseid, decisionid) — the key, the sequence and the FK are untouched."""
+    protected, _ = _ensure_unique_or_report(
+        "finaldecision", "caseid", "finaldecision_one_per_case"
+    )
+    return protected
+
+
 def run_all():
     remove_documents_module()
     remove_appeals_module()
@@ -599,6 +686,8 @@ def run_all():
     ensure_unique_courtname()
     ensure_unique_courtroom_number()
     ensure_one_scheduled_hearing_per_case()
+    ensure_hearing_status_values()
     ensure_hearing_survives_judge_deletion()
     ensure_case_lawyer_link_survives_lawyer_deletion()
     ensure_finaldecision_id_sequence()
+    ensure_one_finaldecision_per_case()

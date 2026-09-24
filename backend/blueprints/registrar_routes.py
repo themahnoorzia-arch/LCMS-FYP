@@ -157,6 +157,16 @@ def approve_join_request(lawyerid, caseid):
         if not cur.fetchone():
             return jsonify({'error': 'Case is not assigned to your court'}), 403
 
+        # The request may have been made while the case was still Open. If
+        # the case has since been closed, approving would add counsel and
+        # link a client to a decided case — refuse, and leave the request
+        # pending (it can still be rejected) so nothing is written here.
+        cur.execute("SELECT status FROM cases WHERE caseid = %s", (caseid,))
+        case_row = cur.fetchone()
+        if case_row and (case_row['status'] or '').lower() == 'closed':
+            msg = 'This case is closed, so this join request can no longer be approved. You can reject it instead.'
+            return jsonify({'error': msg, 'message': msg}), 409
+
         cur.execute(
             "SELECT pending_participantid, side FROM caselawyeraccess "
             "WHERE lawyerid = %s AND caseid = %s AND LOWER(status) = 'pending'",

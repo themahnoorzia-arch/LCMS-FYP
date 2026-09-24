@@ -6,18 +6,20 @@ const RegistrarHearingSchedule = () => {
   const [editingHearing, setEditingHearing] = useState(null);
   const [hearings, setHearings] = useState([]);
   const [courtRooms, setCourtRooms] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  const loadHearings = async () => {
+    try {
+      const response = await fetch('/api/hearings', { credentials: 'include' });
+      const data = await response.json();
+      setHearings(data.hearings || []);
+    } catch (error) {
+      console.error('Error fetching hearings:', error);
+    }
+  };
 
   useEffect(() => {
-    const fetchHearings = async () => {
-      try {
-        const response = await fetch('/api/hearings', { credentials: 'include' });
-        const data = await response.json();
-        setHearings(data.hearings || []);
-      } catch (error) {
-        console.error('Error fetching hearings:', error);
-      }
-    };
-    fetchHearings();
+    loadHearings();
 
     // Fetch the registrar's own court, then its rooms, so Venue can be
     // picked from the real available courtrooms instead of typed freely.
@@ -57,48 +59,57 @@ const RegistrarHearingSchedule = () => {
         credentials: 'include',
         body: JSON.stringify({ hearingid, venue }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Failed to update venue');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || data.error || 'Failed to update venue');
       return data;
     } catch (err) {
       console.error('Error updating venue:', err);
-      alert('Failed to update venue: ' + err.message);
       throw err;
     }
   };
 
+  const updateStatusApi = async (hearingid, status) => {
+    const res = await fetch(`/api/hearings/${hearingid}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ status }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.message || 'Failed to update hearing status');
+    return data;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!editingHearing) return;
+    if (!editingHearing || saving) return;
+    setSaving(true);
     try {
-      const updates = [];
-      if (hearingForm.venue !== (editingHearing.venue || '')) {
-        updates.push(updateVenueApi(editingHearing.hearingid, hearingForm.venue));
-      }
       const currentStatus = (editingHearing.hearingstatus || editingHearing.status || 'scheduled').toLowerCase();
-      if (hearingForm.status.toLowerCase() !== currentStatus) {
-        updates.push(
-          fetch(`/api/hearings/${editingHearing.hearingid}/status`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ status: hearingForm.status }),
-          })
-        );
+      if (hearingForm.venue !== (editingHearing.venue || '')) {
+        await updateVenueApi(editingHearing.hearingid, hearingForm.venue);
       }
-      await Promise.all(updates);
-      setHearings(hearings.map(h =>
-        h.hearingid === editingHearing.hearingid
-          ? { ...h, venue: hearingForm.venue, status: hearingForm.status, hearingstatus: hearingForm.status.toLowerCase() }
-          : h
-      ));
+      if (hearingForm.status.toLowerCase() !== currentStatus) {
+        await updateStatusApi(editingHearing.hearingid, hearingForm.status);
+      }
+      // Only close the modal after the server has accepted every change, and
+      // re-read from the server instead of assuming what it now holds.
+      await loadHearings();
       setShowModal(false);
       setEditingHearing(null);
       setHearingForm({ caseName: '', date: '', time: '', venue: '', judge: '', status: 'Scheduled' });
-    } catch {
-      // errors handled in updateVenueApi
+    } catch (err) {
+      alert('Could not save changes: ' + err.message);
+      // A venue change may already have gone through before the status one
+      // was rejected — resync so the table shows what the server really has.
+      await loadHearings();
+    } finally {
+      setSaving(false);
     }
   };
+
+  const isFinalStatus = (h) =>
+    (h?.hearingstatus || h?.status || 'scheduled').toLowerCase() !== 'scheduled';
 
   const statusLabel = (s) => {
     const map = { scheduled: 'Scheduled', completed: 'Completed', adjourned: 'Adjourned', cancelled: 'Cancelled' };
@@ -257,20 +268,26 @@ const RegistrarHearingSchedule = () => {
               <Form.Select
                 value={hearingForm.status}
                 onChange={(e) => setHearingForm({ ...hearingForm, status: e.target.value })}
+                disabled={isFinalStatus(editingHearing)}
               >
                 <option value="Scheduled">Scheduled</option>
                 <option value="Completed">Completed</option>
                 <option value="Adjourned">Adjourned</option>
                 <option value="Cancelled">Cancelled</option>
               </Form.Select>
+              {isFinalStatus(editingHearing) && (
+                <Form.Text className="text-muted">
+                  This hearing's status is final and can't be changed. Schedule a new hearing if needed.
+                </Form.Text>
+              )}
             </Form.Group>
           </Modal.Body>
           <Modal.Footer>
-            <Button variant="secondary" onClick={() => setShowModal(false)}>
+            <Button variant="secondary" onClick={() => setShowModal(false)} disabled={saving}>
               Cancel
             </Button>
-            <Button variant="primary" type="submit">
-              Save Changes
+            <Button variant="primary" type="submit" disabled={saving}>
+              {saving ? 'Saving...' : 'Save Changes'}
             </Button>
           </Modal.Footer>
         </Form>

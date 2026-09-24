@@ -4,6 +4,7 @@ import datetime
 from flask import jsonify, request
 from flask_login import login_required, current_user
 
+import psycopg2.errors
 import psycopg2.extras
 
 from blueprints.cases import cases_bp
@@ -112,6 +113,17 @@ def add_final_decision(case_id):
             "UPDATE cases SET status = 'Closed' WHERE caseid = %s",
             (case_id,),
         )
+        # A closed case can't keep an active hearing. Only hearings still
+        # 'scheduled' are touched — completed/adjourned/cancelled ones are
+        # left exactly as they were. They become 'cancelled' rather than
+        # 'completed' because a past hearing date doesn't prove the hearing
+        # actually took place. This is a direct UPDATE, so it doesn't send
+        # "Hearing Updated" notifications on top of the decision ones below.
+        cur.execute(
+            "UPDATE hearings SET hearingstatus = 'cancelled' "
+            "WHERE caseid = %s AND COALESCE(hearingstatus, 'scheduled') = 'scheduled'",
+            (case_id,),
+        )
         cur.execute(
             """
             INSERT INTO casehistory (caseid, actiondate, actiontaken, remarks)
@@ -152,6 +164,19 @@ def add_final_decision(case_id):
             "message": "Final decision added successfully",
             "decision_id": decision_id,
         }), 201
+    except psycopg2.errors.UniqueViolation as e:
+        # Database backstop for "one final decision per case" (the unique
+        # index finaldecision_one_per_case) — reached when two submissions
+        # race past the 'already closed' check above. The whole transaction
+        # is rolled back, so no hearing was cancelled, no history entry was
+        # added, and the notifications (sent only after commit) never went out.
+        if conn:
+            conn.rollback()
+        if getattr(e.diag, "constraint_name", None) == "finaldecision_one_per_case":
+            return jsonify({
+                "message": "A final decision has already been recorded for this case",
+            }), 409
+        return jsonify({"message": str(e)}), 500
     except Exception as e:
         if conn:
             conn.rollback()

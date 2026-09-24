@@ -567,10 +567,17 @@ def join_case_request():
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         # verify case exists
-        cur.execute("SELECT caseid, title FROM cases WHERE caseid = %s", (caseid,))
+        cur.execute("SELECT caseid, title, status FROM cases WHERE caseid = %s", (caseid,))
         case_row = cur.fetchone()
         if not case_row:
             return jsonify({'message': 'Case not found'}), 404
+
+        # A Closed case has a final decision on record and can't take on
+        # new counsel — refuse before creating any request.
+        if (case_row['status'] or '').lower() == 'closed':
+            return jsonify({
+                'message': 'This case is closed and cannot accept new lawyers'
+            }), 409
 
         # find lawyer profile for current user
         cur.execute("SELECT lawyerid FROM lawyer WHERE userid = %s", (current_user.userid,))
@@ -695,7 +702,8 @@ def check_duplicate_case():
             """
             SELECT c.caseid, c.title, c.casenumber, c.status
             FROM cases c
-            WHERE c.title ILIKE %s OR c.casenumber ILIKE %s
+            WHERE (c.title ILIKE %s OR c.casenumber ILIKE %s)
+              AND LOWER(COALESCE(c.status, '')) <> 'closed'
             ORDER BY c.caseid
             """,
             (like_q, like_q),
@@ -1248,12 +1256,20 @@ def verify_case():
 
         # Verify case exists
         cur.execute(
-            "SELECT caseid, casenumber FROM cases WHERE caseid = %s",
+            "SELECT caseid, casenumber, status FROM cases WHERE caseid = %s",
             (caseid,)
         )
         case_row = cur.fetchone()
         if not case_row:
             return jsonify({'error': 'Case not found'}), 404
+
+        # A Closed case has a final decision on record — this flow would set
+        # it back to 'Open' and rewrite who presided, so it must be refused
+        # before anything is written.
+        if (case_row['status'] or '').lower() == 'closed':
+            return jsonify({
+                'error': 'This case is closed and can no longer be verified or reassigned'
+            }), 409
 
         # Generate case number if not already assigned
         casenumber = case_row['casenumber']

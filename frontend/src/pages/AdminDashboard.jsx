@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { performLogout } from '../utils/logout';
 import {
   Table, Form, Card, Spinner, Alert,
   Badge, Button, Modal, Row, Col, InputGroup,
@@ -259,10 +260,7 @@ const AdminDashboard = () => {
     setDeleteCourtModal({ show: false, court: null });
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate('/login');
-  };
+  const handleLogout = () => performLogout(navigate);
 
   // ── filtered lists ─────────────────────────────────────────────────────
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { performLogout } from '../utils/logout';
 import { Image, Card, Row, Col, InputGroup, Form, Button, Badge, Table, Modal, ListGroup, Alert, Spinner } from 'react-bootstrap';
 import { User, PlusCircle, Search, Calendar, FileText, LogOut } from 'lucide-react';
 import JudgeSidebarNav from '../components/dashboard/JudgeSidebarNav';
@@ -318,8 +319,8 @@ useEffect(() => {
 
   const handleAddHearing = async (e) => {
   e.preventDefault();
-  if (hearingForm.hearingDate < today) {
-    alert('Cannot schedule hearings for past dates.');
+  if (new Date(`${hearingForm.hearingDate}T${hearingForm.hearingTime}`) <= new Date()) {
+    alert('Cannot schedule hearings for a past date or time.');
     return;
   }
 
@@ -410,10 +411,7 @@ const updateHearingRemarks = async (hearingId, remarks) => {
   setRemarksText('');
 };
 
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate('/login');
-  };
+  const handleLogout = () => performLogout(navigate);
 
   const todaysHearings = hearings.filter(
     (h) => h.hearingdate && String(h.hearingdate).startsWith(today)

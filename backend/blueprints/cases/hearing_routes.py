@@ -1,3 +1,5 @@
+import datetime
+
 from flask import jsonify, request
 from flask_login import login_required, current_user
 
@@ -6,6 +8,23 @@ import psycopg2.extras
 
 from blueprints.cases import cases_bp
 from db.db import get_pg_connection
+
+# Hearing dates/times are entered as Pakistan local time and stored without a
+# time zone, while the server may run in UTC — so "now" must be Pakistan time
+# (fixed UTC+5, no daylight saving) or the past/future check would be hours off.
+_PKT = datetime.timezone(datetime.timedelta(hours=5))
+
+
+def _hearing_datetime_error(hearingdate, hearingtime):
+    """Error message if the hearing date/time is malformed or not in the
+    future (Pakistan time); None if it's acceptable."""
+    try:
+        when = datetime.datetime.fromisoformat(f"{hearingdate}T{hearingtime}")
+    except (TypeError, ValueError):
+        return "Invalid hearing date or time"
+    if when <= datetime.datetime.now(_PKT).replace(tzinfo=None):
+        return "Hearing date and time must be in the future"
+    return None
 
 
 @cases_bp.route("/hearings", methods=["GET"])
@@ -175,6 +194,10 @@ def schedule_hearing():
     if (current_user.role or "").lower() != "judge":
         return jsonify({"error": "Only judges can schedule hearings"}), 403
 
+    time_error = _hearing_datetime_error(hearingdate, hearingtime)
+    if time_error:
+        return jsonify({"error": time_error}), 400
+
     conn = None
     try:
         conn = get_pg_connection()
@@ -314,6 +337,10 @@ def reschedule_hearing(hearing_id):
     if not hearingdate or not hearingtime:
         return jsonify({"error": "Hearing date and time are required"}), 400
 
+    time_error = _hearing_datetime_error(hearingdate, hearingtime)
+    if time_error:
+        return jsonify({"error": time_error}), 400
+
     conn = None
     try:
         conn = get_pg_connection()
@@ -435,17 +462,27 @@ def update_hearing_status(hearing_id):
     valid_statuses = ["scheduled", "completed", "adjourned", "cancelled"]
     if new_status.lower() not in valid_statuses:
         return jsonify({"error": f"Status must be one of: {', '.join(valid_statuses)}"}), 400
+    # A hearing only ever moves *out of* 'scheduled' — completed, adjourned
+    # and cancelled are final. Setting one back to 'scheduled' would bypass
+    # the double-booking and one-scheduled-per-case checks.
+    if new_status.lower() == "scheduled":
+        return jsonify({
+            "error": "A hearing cannot be set back to scheduled — schedule a new hearing instead"
+        }), 400
 
     conn = None
     try:
         conn = get_pg_connection()
         cur = conn.cursor()
 
-        cur.execute("SELECT caseid, judgeid FROM hearings WHERE hearingid = %s", (hearing_id,))
+        cur.execute(
+            "SELECT caseid, judgeid, hearingstatus FROM hearings WHERE hearingid = %s",
+            (hearing_id,),
+        )
         hearing_row = cur.fetchone()
         if not hearing_row:
             return jsonify({"error": "Hearing not found"}), 404
-        hearing_caseid, hearing_judgeid = hearing_row
+        hearing_caseid, hearing_judgeid, current_status = hearing_row
 
         if current_user.role == "Judge":
             cur.execute(
@@ -464,12 +501,21 @@ def update_hearing_status(hearing_id):
             if not cur.fetchone():
                 return jsonify({"error": "This case is not assigned to your court"}), 403
 
+        if (current_status or "scheduled") != "scheduled":
+            return jsonify({
+                "error": f"Only a scheduled hearing can be updated — this one is already {current_status}"
+            }), 409
+
+        # Conditional on 'scheduled' too, so two near-simultaneous updates
+        # can't both succeed and overwrite each other's final status.
         cur.execute(
-            "UPDATE hearings SET hearingstatus = %s WHERE hearingid = %s",
+            "UPDATE hearings SET hearingstatus = %s "
+            "WHERE hearingid = %s AND COALESCE(hearingstatus, 'scheduled') = 'scheduled'",
             (new_status.lower(), hearing_id),
         )
         if cur.rowcount == 0:
-            return jsonify({"error": "Hearing not found"}), 404
+            conn.rollback()
+            return jsonify({"error": "This hearing's status was just changed by someone else"}), 409
         conn.commit()
 
         # Notify lawyers and clients on the case

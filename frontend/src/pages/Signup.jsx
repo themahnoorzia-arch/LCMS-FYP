@@ -271,6 +271,11 @@ const Signup = () => {
         zIndex: 2,
         position: 'relative',
       }}>
+        <div className="mb-2">
+          <Link to="/" style={{ color: '#6b7280', textDecoration: 'none', fontSize: '0.9rem' }}>
+            ← Back to Home
+          </Link>
+        </div>
         <h2 className="gradient-text" style={{
           background: 'linear-gradient(90deg, #22304a 0%, #1ec6b6 100%)',
           WebkitBackgroundClip: 'text',
