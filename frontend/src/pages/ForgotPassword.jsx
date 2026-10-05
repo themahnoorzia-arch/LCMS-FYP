@@ -64,27 +64,13 @@ const ForgotPassword = () => {
     e.preventDefault();
   };
 
-  // Step 2 → verify OTP, move to step 3
-  const handleVerifyOtp = async () => {
+  // Step 2 → check the code is filled in, move to step 3
+  // (the backend verifies the OTP when the new password is submitted)
+  const handleVerifyOtp = () => {
     const code = otp.join('');
     if (code.length < 6) { setError('Enter the full 6-digit code.'); return; }
-    setLoading(true); setError('');
-    try {
-      const res = await fetch('/api/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, otp: code, newPassword: '__CHECK_OTP__' }),
-      });
-      const data = await res.json();
-      // If OTP is wrong/expired we get an error; if password is too short we move on
-      if (data.message?.includes('8 characters') || data.success) {
-        setStep(3);
-      } else {
-        setError(data.message);
-        if (data.expired) setOtp(['', '', '', '', '', '']);
-      }
-    } catch { setError('Could not reach the server.'); }
-    finally { setLoading(false); }
+    setError('');
+    setStep(3);
   };
 
   // Step 3 — reset password

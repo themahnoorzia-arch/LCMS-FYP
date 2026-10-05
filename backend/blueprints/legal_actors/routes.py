@@ -28,7 +28,7 @@ def get_judges_for_court():
             cur.execute(
                 """
                 SELECT j.judgeid, u.firstname, u.lastname, j.position,
-                       j.expyears, j.appointmentdate, j.specialization
+                       j.expyears, j.specialization
                 FROM judge j
                 JOIN users u ON u.userid = j.userid
                 JOIN judgeworksin jw ON jw.judgeid = j.judgeid
@@ -57,11 +57,6 @@ def get_judges_for_court():
                         "name": f"{judge['firstname']} {judge['lastname']}",
                         "position": judge["position"],
                         "expyears": judge["expyears"],
-                        "appointmentdate": (
-                            judge["appointmentdate"].isoformat()
-                            if judge["appointmentdate"]
-                            else None
-                        ),
                         "specialization": judge["specialization"],
                         "assigned_cases": assigned_titles,
                     }

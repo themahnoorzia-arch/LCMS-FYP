@@ -56,7 +56,6 @@ const RegistrarDashboard = () => {
   const [editingRoom, setEditingRoom] = useState(null);
   const [searchRoom, setSearchRoom] = useState('');
 
-  const [courtJudges, setCourtJudges] = useState([]);
   const [searchJudge, setSearchJudge] = useState('');
   const [showJudgeModal, setShowJudgeModal] = useState(false);
   const [editingJudge, setEditingJudge] = useState(null);
@@ -761,13 +760,7 @@ useEffect(() => {
       .then(data => {
         const fetchedJudges = data.judges || [];
         setJudgeOptions(fetchedJudges);
-        setCourtJudges(fetchedJudges.map(judge => ({
-          ...judge,
-          id: judge.judgeid,
-          experience: judge.expyears,
-          appointmentDate: judge.appointmentdate,
-          assignedCases: judge.assigned_cases || [],
-        })));
+        
       })
       .catch(() => setJudgeOptions([]));
     fetch('/api/prosecutors', { credentials: 'include' })
@@ -1773,7 +1766,6 @@ const handleOpenAssignJudge = () => {
               <th>Name</th>
               <th>Position</th>
               <th>Experience (years)</th>
-              <th>Appointment Date</th>
               <th>Specialization</th>
               <th>Assigned Cases</th>
               <th>Actions</th>
@@ -1784,14 +1776,13 @@ const handleOpenAssignJudge = () => {
               const filteredJudges = judges
                 .filter(j => j.name?.toLowerCase().includes(searchJudge.toLowerCase()));
               if (filteredJudges.length === 0) {
-                return <tr><td colSpan={7} className="text-center text-muted py-4">No judges found.</td></tr>;
+                return <tr><td colSpan={6} className="text-center text-muted py-4">No judges found.</td></tr>;
               }
               return filteredJudges.map((judge) => (
                 <tr key={judge.judgeid}>
                   <td>{judge.name}</td>
                   <td>{judge.position}</td>
                   <td>{judge.expyears}</td>
-                  <td>{judge.appointmentdate}</td>
                   <td>{judge.specialization}</td>
                   <td>
                     {judge.assigned_cases?.length > 0 ? (
